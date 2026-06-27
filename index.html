@@ -26,6 +26,10 @@
   #hotbar span{display:inline-block;padding:4px 6px;margin:2px;border:1px solid #4a4d8c;border-radius:5px;background:rgba(20,21,43,.7);}
   #hotbar span.on{border-color:#f4d03f;color:#f4d03f;background:rgba(60,50,10,.6);}
   .badge{display:inline-block;background:rgba(20,21,43,.7);border:1px solid #dcc97a;border-radius:6px;padding:4px 7px;}
+  #saintbox{left:50%;transform:translateX(-50%);bottom:78px;width:min(560px,86vw);text-align:center;
+    background:rgba(20,21,43,.86);border:2px solid #dcc97a;border-radius:8px;padding:8px 10px;opacity:0;transition:opacity .3s;}
+  #saintbox b{color:#f4d03f;font-size:9px;display:block;margin-bottom:6px;}
+  #saintText{color:#eef1f5;font-size:8px;line-height:1.8;}
   #cross{position:fixed;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;pointer-events:none;opacity:.5;}
   #cross::before,#cross::after{content:'';position:absolute;background:#fff;}
   #cross::before{left:4px;top:0;width:2px;height:10px;}
@@ -44,6 +48,7 @@
   <div class="ui" id="cross"></div>
   <div class="ui" id="msg"></div>
   <div class="ui" id="hotbar"></div>
+  <div class="ui" id="saintbox"><b id="saintName"></b><div id="saintText"></div></div>
   <div class="ui" id="hint"></div>
 
 <script type="importmap">
@@ -138,23 +143,31 @@ function remesh() {
 }
 
 // ---------- terrain ----------
-const R = 16, POND = { x: -9, z: 8, r: 3 };
+const R = 26, POND = { x: -15, z: 13, r: 5 };
 function heightAt(x, z) {
-  const v = 2 + 1.2 * Math.sin(x * 0.45) + 1.1 * Math.cos(z * 0.4) + 0.7 * Math.sin((x + z) * 0.28);
-  return Math.max(2, Math.min(5, Math.round(v)));
+  const v = 2 + 1.3 * Math.sin(x * 0.32) + 1.2 * Math.cos(z * 0.3) + 0.9 * Math.sin((x + z) * 0.2) + 1.1 * Math.cos(x * 0.12 + z * 0.15);
+  return Math.max(2, Math.min(6, Math.round(v)));
 }
 for (let x = -R; x <= R; x++) for (let z = -R; z <= R; z++) {
   if (Math.hypot(x - POND.x, z - POND.z) < POND.r) { setBlock(x, 0, z, 'stone'); setBlock(x, 1, z, 'stone'); setBlock(x, 2, z, 'water'); continue; }
   const h = heightAt(x, z);
   setBlock(x, h, z, 'grass'); setBlock(x, h - 1, z, 'dirt'); setBlock(x, h - 2, z, 'stone');
 }
-[[6, 9], [11, 3], [-12, -7], [8, -10], [-6, 11], [13, 12]].forEach(([x, z]) => {
+function plantTree(x, z) {
   const base = heightAt(x, z) + 1; for (let i = 0; i < 3; i++) setBlock(x, base + i, z, 'trunk');
   const top = base + 3;
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) setBlock(x + dx, top - 1, z + dz, 'leaf');
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (Math.abs(dx) + Math.abs(dz) < 2) setBlock(x + dx, top, z + dz, 'leaf');
   setBlock(x, top + 1, z, 'leaf');
-});
+}
+for (let i = 0; i < 34; i++) {
+  const x = Math.round((Math.random() * 2 - 1) * (R - 3)), z = Math.round((Math.random() * 2 - 1) * (R - 3));
+  if (Math.hypot(x - POND.x, z - POND.z) < POND.r + 2) continue;
+  if (z < 0 && Math.abs(x) < 11) continue;        // keep the shrine clear
+  if (Math.abs(x) < 4 && Math.abs(z - 4) < 4) continue; // keep spawn clear
+  if (x > 11 && x < 24 && z > 4 && z < 18) continue;    // keep the village clear
+  plantTree(x, z);
+}
 
 // ---------- the Shrine of St. Stanislaus (accurate-ish voxel build) ----------
 // Gothic Revival: warm RED BRICK + white dressed stone, TWIN SPIRES with gold
@@ -233,6 +246,23 @@ function buildShrine() {
   for (let z = fz + 1; z <= fz + 6; z++) fill(-1, 1, heightAt(0, z), heightAt(0, z), z, z, 'white');
 }
 buildShrine();
+
+// ---------- a little village to defend (wooden huts) ----------
+function hut(cx, cz, w, d) {
+  const fy = heightAt(cx, cz);
+  clear(cx - w, cx + w, fy + 1, fy + 4, cz - d, cz + d);
+  for (let x = cx - w; x <= cx + w; x++) for (let z = cz - d; z <= cz + d; z++) {
+    const edge = x === cx - w || x === cx + w || z === cz - d || z === cz + d;
+    setBlock(x, fy, z, 'plank');                                   // floor
+    if (edge) for (let y = fy + 1; y <= fy + 3; y++) setBlock(x, y, z, 'plank'); // walls
+  }
+  removeBlock(cx, fy + 1, cz + d); removeBlock(cx, fy + 2, cz + d); // doorway
+  setBlock(cx + 1, fy + 2, cz - d, 'glassB'); setBlock(cx - 1, fy + 2, cz - d, 'glassB'); // windows
+  for (let x = cx - w - 1; x <= cx + w + 1; x++) for (let z = cz - d - 1; z <= cz + d + 1; z++) setBlock(x, fy + 4, z, 'slate'); // roof
+  for (let x = cx - w; x <= cx + w; x++) setBlock(x, fy + 5, cz, 'slate'); // ridge
+}
+hut(16, 8, 2, 2); hut(21, 13, 2, 1); hut(15, 16, 1, 2);
+
 remesh();
 
 // ---------- hero ----------
@@ -260,21 +290,71 @@ let heroX = 0, heroZ = 4;
 hero.position.set(heroX, surfaceY(heroX, heroZ), heroZ);
 scene.add(hero);
 
-// ---------- armor pickups ----------
+// ---------- the Armor of God (Ephesians 6) — six pieces, each a power ----------
+const armorSet = { belt: false, shoes: false, breastplate: false, shield: false, helmet: false, sword: false };
+const ARMOR_TOTAL = 6;
 const pickups = [];
-function makePickup(kind, x, z, build) {
+function makePiece(id, name, power, x, z, build, attach) {
   const g = new THREE.Group(); build(g); g.position.set(x, surfaceY(x, z) + 1.2, z);
-  g.userData = { kind, x, z, taken: false }; scene.add(g); pickups.push(g); return g;
+  g.userData = { id, name, power, x, z, taken: false, attach }; scene.add(g); pickups.push(g); return g;
 }
-makePickup('Shield of Faith', 6, 2, (g) => {
-  g.add(part(0.74, 0.92, 0.12, 0xc6cfdc, 0, 0, 0, {}));
-  g.add(part(0.12, 0.62, 0.06, 0xf4d03f, 0, 0.02, 0.09, { e: 0xb8860b, ei: 0.7 }));
-  g.add(part(0.46, 0.12, 0.06, 0xf4d03f, 0, 0.12, 0.09, { e: 0xb8860b, ei: 0.7 }));
-});
-makePickup('Helmet of Salvation', -7, 3, (g) => {
-  g.add(part(0.6, 0.4, 0.6, 0xc6cfdc, 0, 0, 0, {}));
-  g.add(part(0.64, 0.14, 0.64, 0xf4d03f, 0, 0.24, 0, { e: 0xb8860b, ei: 0.6 }));
-});
+makePiece('belt', 'Belt of Truth', 'quick, steady steps', 6, 9,
+  g => { g.add(part(0.9, 0.2, 0.5, 0xdcc97a, 0, 0, 0, { e: 0xb8860b, ei: 0.4 })); g.add(part(0.24, 0.24, 0.55, 0xf4d03f, 0, 0, 0, { e: 0xb8860b, ei: 0.6 })); },
+  g => { hero.add(g); g.position.set(0, 1.05, 0); g.scale.setScalar(0.9); });
+makePiece('shoes', 'Shoes of the Gospel', 'a higher, surer leap', POND.x + POND.r + 2, POND.z,
+  g => { g.add(part(0.34, 0.24, 0.5, 0xc6cfdc, -0.22, 0, 0, {})); g.add(part(0.34, 0.24, 0.5, 0xc6cfdc, 0.22, 0, 0, {})); g.add(part(0.82, 0.08, 0.55, 0xf4d03f, 0, 0.16, 0, { e: 0xb8860b, ei: 0.5 })); },
+  g => { hero.add(g); g.position.set(0, 0.16, 0); g.scale.setScalar(0.7); });
+makePiece('breastplate', 'Breastplate of Righteousness', 'shadows wound you less', 20, -8,
+  g => { g.add(part(0.82, 0.9, 0.4, 0xc6cfdc, 0, 0, 0, {})); g.add(part(0.5, 0.22, 0.42, 0xf4d03f, 0, 0.16, 0, { e: 0xb8860b, ei: 0.6 })); },
+  g => { hero.add(g); g.position.set(0, 1.1, 0.03); g.scale.setScalar(0.92); });
+makePiece('shield', 'Shield of Faith', 'a chance to block all harm', 17, 12,
+  g => { g.add(part(0.74, 0.92, 0.12, 0xc6cfdc, 0, 0, 0, {})); g.add(part(0.12, 0.62, 0.06, 0xf4d03f, 0, 0.02, 0.09, { e: 0xb8860b, ei: 0.7 })); g.add(part(0.46, 0.12, 0.06, 0xf4d03f, 0, 0.12, 0.09, { e: 0xb8860b, ei: 0.7 })); },
+  g => { hero.add(g); g.position.set(-0.6, 1.1, 0.1); g.scale.setScalar(0.8); g.rotation.set(0, 0, 0); });
+makePiece('helmet', 'Helmet of Salvation', 'your Faith slowly returns', 0, -19,
+  g => { g.add(part(0.6, 0.4, 0.6, 0xc6cfdc, 0, 0, 0, {})); g.add(part(0.64, 0.14, 0.64, 0xf4d03f, 0, 0.24, 0, { e: 0xb8860b, ei: 0.6 })); },
+  g => { hero.add(g); g.position.set(0, 2.18, 0); g.scale.setScalar(0.7); });
+makePiece('sword', 'Sword of the Spirit', 'your blade strikes far & true', 23, 22,
+  g => { g.add(part(0.14, 1.2, 0.07, 0xdfffff, 0, 0.4, 0, { e: 0x8fe6ff, ei: 1.6 })); g.add(part(0.5, 0.12, 0.12, 0xf4d03f, 0, -0.25, 0, { e: 0xb8860b, ei: 0.6 })); },
+  g => { scene.remove(g); }); // tempers the blade you already carry
+
+// ---------- saint quest-givers ----------
+let placedCount = 0;
+const saints = [];
+function makeSaint(name, x, z, lines, quest) {
+  const g = new THREE.Group();
+  g.add(part(0.72, 1.2, 0.5, 0xf2ecda, 0, 0.6, 0, {}));           // robe
+  g.add(part(0.3, 0.5, 0.5, 0x6c7a9c, 0, 0.6, -0.02, {}));        // mantle
+  g.add(part(0.5, 0.5, 0.5, 0xe8d9c0, 0, 1.45, 0, {}));           // head
+  g.add(part(0.1, 0.1, 0.1, 0x1c1c1c, -0.12, 1.45, 0.26)); g.add(part(0.1, 0.1, 0.1, 0x1c1c1c, 0.12, 1.45, 0.26));
+  for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; g.add(part(0.1, 0.1, 0.1, 0xf4d03f, Math.cos(a) * 0.42, 1.92, Math.sin(a) * 0.42, { e: 0xb8860b, ei: 0.9 })); }
+  const mark = part(0.2, 0.2, 0.2, 0xf4d03f, 0, 2.45, 0, { e: 0xb8860b, ei: 1.1 }); mark.rotation.set(0.7, 0.7, 0); g.add(mark);
+  g.position.set(x, surfaceY(x, z), z); g.userData = { name, x, z, lines, quest, mark };
+  scene.add(g); saints.push(g); return g;
+}
+makeSaint('ST. MICHAEL the Archangel', -11, -2,
+  ['Courage, soldier of Christ! Shadows trouble this land.', 'Stand firm — the victory is the Lord\'s.'],
+  { type: 'banish', target: 6, desc: 'Banish 6 shadows.', reward: 'Heaven stands with the brave. Your faith is restored!', accepted: false, done: false, baseline: 0 });
+makeSaint('ST. JOSEPH the Worker', 16, 11,
+  ['Honest work is a prayer. This village needs builders.', 'Well built, friend. Keep at it, quietly and faithfully.'],
+  { type: 'place', target: 12, desc: 'Place 12 blocks to help build.', reward: 'A job done with love. Be refreshed!', accepted: false, done: false, baseline: 0 });
+makeSaint('ST. THÉRÈSE of the Child Jesus', POND.x + 2, POND.z - 2,
+  ['Do small things with great love.', 'You have put on Christ. Go gently, and shine.'],
+  { type: 'armor', target: 6, desc: 'Gather all six pieces of the Armor of God.', reward: 'Clothed in grace! Walk in peace.', accepted: false, done: false, baseline: 0 });
+
+function progressOf(q) { return q.type === 'banish' ? banished - q.baseline : q.type === 'place' ? placedCount - q.baseline : armor; }
+const saintBox = document.getElementById('saintbox');
+let saintT = 0;
+function showSaint(name, text) { document.getElementById('saintName').textContent = name; document.getElementById('saintText').textContent = text; saintBox.style.opacity = 1; saintT = 5; }
+function talkSaint() {
+  let best = null, bd = 3; saints.forEach(s => { const d = Math.hypot(s.userData.x - heroX, s.userData.z - heroZ); if (d < bd) { bd = d; best = s; } });
+  if (!best) return;
+  const q = best.userData.quest;
+  let txt;
+  if (!q.accepted) { q.accepted = true; q.baseline = q.type === 'banish' ? banished : q.type === 'place' ? placedCount : 0; txt = best.userData.lines[0] + '  ❖ Quest: ' + q.desc; }
+  else if (!q.done) { const p = Math.max(0, progressOf(q)); if (p >= q.target) { q.done = true; faith = Math.min(100, faith + 40); updHUD(); best.userData.mark.visible = false; txt = 'Well done! ' + q.reward; } else txt = q.desc + '  (' + p + ' / ' + q.target + ')'; }
+  else txt = best.userData.lines[1] || 'Go in peace.';
+  showSaint(best.userData.name, txt);
+}
 
 // ---------- shadow enemies ----------
 const enemies = [];
@@ -317,7 +397,7 @@ const faithFill = document.getElementById('faithFill');
 function updHUD() {
   faithFill.style.width = Math.max(0, faith) + '%';
   faithFill.style.background = faith > 40 ? '#bdf0a0' : '#ffd27a';
-  document.getElementById('armorTxt').textContent = 'Armor ' + armor + '/2';
+  document.getElementById('armorTxt').textContent = 'Armor ' + armor + '/' + ARMOR_TOTAL;
   document.getElementById('foeTxt').textContent = 'Shadows banished: ' + banished;
 }
 const BUILD_TYPES = ['grass', 'stone', 'plank', 'brick', 'white', 'glassB', 'gold'];
@@ -332,8 +412,8 @@ let mode = 'fight';
 function setHint() {
   document.getElementById('modeTxt').textContent = mode.toUpperCase();
   hintEl.innerHTML = mode === 'fight'
-    ? 'WASD move · Space jump · right-drag look · <b>left-click</b> swing the Sword of the Spirit · Tab → build'
-    : 'WASD move · 1-7 pick block · <b>left-click</b> break · <b>shift+click</b> place · Tab → fight';
+    ? 'WASD move · Space jump · drag look · <b>left-click</b> swing · <b>E</b> talk to saints · find the 6 Armor pieces · Tab → build'
+    : 'WASD move · 1-7 pick block · <b>left-click</b> break · <b>shift+click</b> place · <b>E</b> talk to saints · Tab → fight';
   drawHotbar();
 }
 
@@ -341,9 +421,10 @@ function setHint() {
 const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (e.code === 'Space') { e.preventDefault(); if (!jumping) { vy = 6.4; jumping = true; } }
+  if (e.code === 'Space') { e.preventDefault(); if (!jumping) { vy = armorSet.shoes ? 8.6 : 6.4; jumping = true; } }
   if (e.code === 'Tab') { e.preventDefault(); mode = mode === 'fight' ? 'build' : 'fight'; setHint(); }
   if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < BUILD_TYPES.length) { sel = n; drawHotbar(); } }
+  if (e.code === 'KeyE') talkSaint();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 const ray = new THREE.Raycaster();
@@ -362,10 +443,11 @@ let swing = 0;
 function swingSword() {
   swing = 1;
   const f = facing();
+  const reach = armorSet.sword ? 3.7 : 2.6, hit = armorSet.sword ? 2 : 1;
   enemies.slice().forEach(en => {
     const dx = en.userData.x - heroX, dz = en.userData.z - heroZ, d = Math.hypot(dx, dz);
-    if (d < 2.6 && (dx * f.x + dz * f.z) > -0.3) {
-      en.userData.hp -= 1;
+    if (d < reach && (dx * f.x + dz * f.z) > -0.3) {
+      en.userData.hp -= hit;
       if (en.userData.hp <= 0) { burst(en.position.clone()); scene.remove(en); enemies.splice(enemies.indexOf(en), 1); banished++; updHUD(); }
       else burst(en.position.clone(), [0x8fe6ff, 0xffffff]);
     }
@@ -382,7 +464,7 @@ function editBlock(ndc, place) {
       const np = [bp[0] + Math.round(n.x), bp[1] + Math.round(n.y), bp[2] + Math.round(n.z)];
       if (world.has(K(...np))) return;
       if (Math.hypot(np[0] - heroX, np[2] - heroZ) < 0.9 && Math.abs(np[1] - hero.position.y - 1) < 1.5) return; // not inside hero
-      setBlock(np[0], np[1], np[2], BUILD_TYPES[sel]);
+      setBlock(np[0], np[1], np[2], BUILD_TYPES[sel]); placedCount++;
     } else {
       removeBlock(bp[0], bp[1], bp[2]);
     }
@@ -402,7 +484,7 @@ function frame() {
   if (keys['KeyW']) mv.add(fwd); if (keys['KeyS']) mv.sub(fwd);
   if (keys['KeyD']) mv.add(right); if (keys['KeyA']) mv.sub(right);
   if (mv.lengthSq()) {
-    mv.normalize().multiplyScalar(5 * dt);
+    mv.normalize().multiplyScalar((armorSet.belt ? 6.4 : 5) * dt);
     const feet = hero.position.y, STEP = 1.1;
     const nx = Math.max(-R + .5, Math.min(R - .5, heroX + mv.x));
     if (surfaceY(nx, heroZ) - feet <= STEP) heroX = nx;
@@ -418,13 +500,14 @@ function frame() {
   pickups.forEach(p => {
     if (p.userData.taken) return;
     p.rotation.y += dt * 1.5; p.position.y = surfaceY(p.userData.x, p.userData.z) + 1.2 + Math.sin(t * 2) * 0.12;
-    if (Math.hypot(heroX - p.userData.x, heroZ - p.userData.z) < 1.4) {
-      p.userData.taken = true; scene.remove(p); armor++; updHUD();
-      showMsg(p.userData.kind + ' equipped!'); burst(new THREE.Vector3(heroX, hero.position.y + 1, heroZ));
-      if (p.userData.kind.startsWith('Shield')) { hero.add(p); p.position.set(-0.55, 1.1, 0.1); p.scale.setScalar(0.8); p.rotation.set(0, 0, 0); }
-      else { hero.add(p); p.position.set(0, 2.2, 0); p.scale.setScalar(0.7); p.rotation.set(0, 0, 0); }
+    if (Math.hypot(heroX - p.userData.x, heroZ - p.userData.z) < 1.5) {
+      p.userData.taken = true; armorSet[p.userData.id] = true; armor++; updHUD();
+      showMsg(p.userData.name + ' — ' + p.userData.power + '!'); burst(new THREE.Vector3(heroX, hero.position.y + 1, heroZ));
+      p.userData.attach(p);
+      if (armor >= ARMOR_TOTAL) setTimeout(() => showMsg('The full Armor of God! "Be strong in the Lord." (Eph 6:10)'), 2300);
     }
   });
+  if (armorSet.helmet && faith < 100) { faith = Math.min(100, faith + 4 * dt); updHUD(); }
   // enemies chase + attack
   spawnTimer += dt; if (spawnTimer > 5 && enemies.length < 7) { spawnTimer = 0; spawnEnemy(); }
   enemies.forEach(en => {
@@ -435,7 +518,12 @@ function frame() {
       if (surfaceY(nx, en.userData.z) - cur <= 1.1) en.userData.x = nx;
       if (surfaceY(en.userData.x, nz) - cur <= 1.1) en.userData.z = nz;
     }
-    else if (t - en.userData.lastHit > 1.1) { en.userData.lastHit = t; faith = Math.max(0, faith - 9); updHUD(); burst(en.position.clone(), [0xb08bd0]); }
+    else if (t - en.userData.lastHit > 1.1) {
+      en.userData.lastHit = t;
+      let dmg = 9; if (armorSet.breastplate) dmg *= 0.5;
+      if (armorSet.shield && Math.random() < 0.4) { dmg = 0; showMsg('Faith blocks the blow!'); }
+      faith = Math.max(0, faith - dmg); updHUD(); burst(en.position.clone(), [0xb08bd0]);
+    }
     en.position.set(en.userData.x, surfaceY(en.userData.x, en.userData.z) + 0.9 + Math.sin(t * 3 + en.userData.x) * 0.12, en.userData.z);
     en.rotation.y = Math.atan2(dx, dz);
   });
@@ -445,7 +533,9 @@ function frame() {
   // camera follows hero
   controls.target.lerp(new THREE.Vector3(heroX, hero.position.y + 1.4, heroZ), 0.12);
   controls.update();
+  saints.forEach(s => { s.userData.mark.rotation.y += dt * 2; s.userData.mark.position.y = 2.45 + Math.sin(t * 2) * 0.1; });
   if (msgT > 0) { msgT -= dt; if (msgT <= 0) msgEl.style.opacity = 0; }
+  if (saintT > 0) { saintT -= dt; if (saintT <= 0) saintBox.style.opacity = 0; }
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
@@ -454,7 +544,7 @@ updHUD(); setHint();
 controls.target.set(heroX, hero.position.y + 1.4, heroZ);
 renderer.render(scene, camera);
 requestAnimationFrame(frame);
-window.__lumen = { scene, camera, hero, renderer, controls, enemies, world, get faith() { return faith; }, get banished() { return banished; }, get mode() { return mode; }, spawnEnemy };
+window.__lumen = { scene, camera, hero, renderer, controls, enemies, world, pickups, armorSet, saints, get faith() { return faith; }, get armor() { return armor; }, get banished() { return banished; }, get mode() { return mode; }, spawnEnemy, heroPos: () => [heroX, heroZ] };
 </script>
 </body>
 </html>
