@@ -574,10 +574,11 @@ function spawnVillager() {
 for (let i = 0; i < VILLAGE_MAX; i++) spawnVillager();
 
 // ---------- particles ----------
-const sparks = [];
+const sparks = [], sparkGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14); // SHARED geometry (no per-spark alloc)
 function burst(pos, cols = [0x8fe6ff, 0xf4d03f, 0xffffff, 0xbdf0a0]) {
-  for (let i = 0; i < 26; i++) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), new THREE.MeshBasicMaterial({ color: cols[i % cols.length], transparent: true }));
+  if (sparks.length > 320) return;                   // cap so heavy combat can't flood the GPU
+  for (let i = 0; i < 22; i++) {
+    const m = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color: cols[i % cols.length], transparent: true }));
     m.position.copy(pos); m.userData = { v: new THREE.Vector3((Math.random() - 0.5) * 4, Math.random() * 4 + 1, (Math.random() - 0.5) * 4), life: 1.0 };
     scene.add(m); sparks.push(m);
   }
@@ -649,13 +650,16 @@ canvas.addEventListener('pointerup', pointerEnd);
 canvas.addEventListener('pointercancel', () => { pDown = false; });
 canvas.addEventListener('wheel', e => { camDist = Math.max(6, Math.min(26, camDist + Math.sign(e.deltaY) * 1.4)); }, { passive: true });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); started = false; showMsg('Graphics hiccup — please reload.'); }, false);
 
 let swing = 0;
+// free GPU memory for any removed character (enemies/villagers are unique meshes)
+function disposeObj(o) { o.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) (Array.isArray(c.material) ? c.material : [c.material]).forEach(m => m.dispose()); }); }
 function damageEnemy(en, hit) {
   en.userData.hp -= hit;
   if (en.userData.hp <= 0) {
     burst(en.position.clone(), en.userData.boss ? [0xf4d03f, 0xffffff, 0x8fe6ff, 0xbdf0a0] : undefined);
-    scene.remove(en); enemies.splice(enemies.indexOf(en), 1);
+    scene.remove(en); disposeObj(en); enemies.splice(enemies.indexOf(en), 1);
     if (en.userData.boss) { bossAlive = false; bossDefeated = true; faith = 100; showMsg('The Great Shadow is vanquished! "The light shines in the darkness." (Jn 1:5)'); sfx.quest(); }
     else { banished++; sfx.banish(); }
     updHUD(); markDirty();
@@ -671,12 +675,13 @@ function swingSword() {
   });
 }
 // ranged attack — a bolt of holy light
-const bolts = []; let boltCD = 0;
+const bolts = [], boltGeo = new THREE.SphereGeometry(0.22, 8, 8), boltMat = new THREE.MeshBasicMaterial({ color: 0x9fe9ff }); // SHARED
+let boltCD = 0;
 function fireBolt() {
   if (boltCD > 0 || !started) return;
   boltCD = 0.45; swing = 0.6;
   const f = facing();
-  const m = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), new THREE.MeshBasicMaterial({ color: 0x9fe9ff }));
+  const m = new THREE.Mesh(boltGeo, boltMat);
   m.position.set(heroX + f.x * 0.6, hero.position.y + 1.3, heroZ + f.z * 0.6);
   m.userData = { vx: f.x * 17, vz: f.z * 17, life: 1.2 };
   scene.add(m); bolts.push(m);
@@ -810,7 +815,7 @@ function frame() {
       if (surfaceY(nx, en.userData.z) - cur <= 1.1) en.userData.x = nx;
       if (surfaceY(en.userData.x, nz) - cur <= 1.1) en.userData.z = nz;
     } else if (vill) {
-      scene.remove(vill); villagers.splice(villagers.indexOf(vill), 1); villagersSafe = Math.max(0, villagersSafe - 1);
+      scene.remove(vill); disposeObj(vill); villagers.splice(villagers.indexOf(vill), 1); villagersSafe = Math.max(0, villagersSafe - 1);
       burst(vill.position.clone(), [0x231a40, 0xb08bd0]); showMsg('A villager fled in fear — defend them!'); updHUD();
       en.userData.target = null;
     } else if (t - en.userData.lastHit > 1.1) {
@@ -827,7 +832,7 @@ function frame() {
   villagerTimer += dt; if (villagerTimer > 16 && villagersSafe < VILLAGE_MAX) { villagerTimer = 0; spawnVillager(); }
   if (faith <= 0) {
     faith = 100; heroX = 0; heroZ = 4; showMsg('Take heart — rise and stand again!');
-    let removed = 0; for (let i = enemies.length - 1; i >= 0 && removed < 2; i--) { if (!enemies[i].userData.boss) { scene.remove(enemies[i]); enemies.splice(i, 1); removed++; } }
+    let removed = 0; for (let i = enemies.length - 1; i >= 0 && removed < 2; i--) { if (!enemies[i].userData.boss) { scene.remove(enemies[i]); disposeObj(enemies[i]); enemies.splice(i, 1); removed++; } }
     updHUD();
   }
   // light bolts (ranged attack)
@@ -840,7 +845,7 @@ function frame() {
     else if (b.userData.life <= 0) { scene.remove(b); bolts.splice(i, 1); }
   }
   // sparks
-  for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.userData.life -= dt; s.position.addScaledVector(s.userData.v, dt); s.userData.v.y -= 6 * dt; s.material.opacity = Math.max(0, s.userData.life); s.scale.setScalar(Math.max(0.1, s.userData.life)); if (s.userData.life <= 0) { scene.remove(s); sparks.splice(i, 1); } }
+  for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.userData.life -= dt; s.position.addScaledVector(s.userData.v, dt); s.userData.v.y -= 6 * dt; s.material.opacity = Math.max(0, s.userData.life); s.scale.setScalar(Math.max(0.1, s.userData.life)); if (s.userData.life <= 0) { scene.remove(s); s.material.dispose(); sparks.splice(i, 1); } }
   // camera follows hero (trails behind when walking; manual look takes over while dragging)
   if (heroMoving && !dragging && performance.now() - lastDragMs > 1400) {
     const fx = Math.sin(hero.rotation.y), fz = Math.cos(hero.rotation.y);
