@@ -31,7 +31,20 @@
   #saintbox b{color:#f4d03f;font-size:9px;display:block;margin-bottom:6px;}
   #saintText{color:#eef1f5;font-size:8px;line-height:1.8;}
   #saved{top:70px;right:12px;font-size:8px;color:#bdf0a0;opacity:0;transition:opacity .3s;}
-  #newworld{position:fixed;bottom:10px;right:10px;font-family:inherit;font-size:7px;color:#c9d0ff;background:rgba(20,21,43,.75);border:1px solid #4a4d8c;border-radius:5px;padding:5px 7px;cursor:pointer;z-index:9;}
+  #slots{position:fixed;top:118px;right:12px;font-size:7px;color:#9aa0e0;z-index:9;}
+  #slots button{font-family:inherit;font-size:7px;color:#c9d0ff;background:rgba(20,21,43,.75);border:1px solid #4a4d8c;border-radius:4px;padding:3px 6px;margin-left:3px;cursor:pointer;}
+  #slots button.on{border-color:#f4d03f;color:#f4d03f;}
+  #newworld{position:fixed;top:140px;right:12px;font-family:inherit;font-size:7px;color:#c9d0ff;background:rgba(20,21,43,.75);border:1px solid #4a4d8c;border-radius:5px;padding:4px 7px;cursor:pointer;z-index:9;}
+  /* on-screen touch controls (also clickable with a mouse) */
+  .tb{font-family:inherit;color:#dfe3ff;background:rgba(30,32,64,.66);border:1px solid #5a5da0;border-radius:9px;
+    font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;}
+  .tb:active{background:rgba(60,64,120,.85);}
+  #dpad{position:fixed;left:12px;bottom:16px;display:grid;grid-template-columns:repeat(3,46px);grid-template-rows:repeat(3,46px);gap:5px;z-index:9;}
+  #dpad .tb:nth-child(1){grid-column:2;grid-row:1;} #dpad .tb:nth-child(2){grid-column:1;grid-row:2;}
+  #dpad .tb:nth-child(3){grid-column:3;grid-row:2;} #dpad .tb:nth-child(4){grid-column:2;grid-row:3;}
+  #acts{position:fixed;right:12px;bottom:16px;display:grid;grid-template-columns:repeat(2,52px);gap:7px;z-index:9;}
+  #acts .tb{height:46px;font-size:9px;}
+  #acts .tb.act{height:46px;font-size:18px;color:#bdf0a0;border-color:#3f7a30;}
   #cross{position:fixed;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;pointer-events:none;opacity:.5;}
   #cross::before,#cross::after{content:'';position:absolute;background:#fff;}
   #cross::before{left:4px;top:0;width:2px;height:10px;}
@@ -52,7 +65,21 @@
   <div class="ui" id="hotbar"></div>
   <div class="ui" id="saintbox"><b id="saintName"></b><div id="saintText"></div></div>
   <div class="ui" id="saved">Saved &#10003;</div>
+  <div id="slots">SLOT <button data-slot="1">1</button><button data-slot="2">2</button><button data-slot="3">3</button></div>
   <button id="newworld">&#8634; new world</button>
+  <div id="dpad">
+    <button class="tb" data-k="KeyW">&#9650;</button>
+    <button class="tb" data-k="KeyA">&#9664;</button>
+    <button class="tb" data-k="KeyD">&#9654;</button>
+    <button class="tb" data-k="KeyS">&#9660;</button>
+  </div>
+  <div id="acts">
+    <button class="tb act" id="tAct">&#9876;</button>
+    <button class="tb" id="tPlace">+</button>
+    <button class="tb" id="tJump">JMP</button>
+    <button class="tb" id="tMode">&#8646;</button>
+    <button class="tb" id="tTalk">&#10022;</button>
+  </div>
   <div class="ui" id="hint"></div>
 
 <script type="importmap">
@@ -377,11 +404,27 @@ function spawnEnemy() {
   g.add(part(0.95, 0.95, 0.95, 0x231a40, 0, 0, 0, { e: 0x140d2a, ei: 0.4 }));
   g.add(part(0.18, 0.18, 0.1, 0xc89bf0, -0.2, 0.12, 0.46, { e: 0xb08bd0, ei: 1.6 }));
   g.add(part(0.18, 0.18, 0.1, 0xc89bf0, 0.2, 0.12, 0.46, { e: 0xb08bd0, ei: 1.6 }));
-  g.position.set(x, surfaceY(x, z) + 0.9, z); g.userData = { hp: 2, x, z, lastHit: 0 };
+  g.position.set(x, surfaceY(x, z) + 0.9, z); g.userData = { hp: 2, x, z, lastHit: 0, yoff: 0.9 };
   scene.add(g); enemies.push(g);
 }
 for (let i = 0; i < 4; i++) spawnEnemy();
 let spawnTimer = 0;
+
+// the Great Shadow — a boss that rises once you've banished enough shadows
+let bossAlive = false, bossDefeated = false;
+function spawnBoss() {
+  if (bossAlive || bossDefeated) return;
+  bossAlive = true;
+  const x = Math.max(-R + 2, Math.min(R - 2, Math.round(heroX + 9))), z = Math.round(heroZ);
+  const g = new THREE.Group();
+  g.add(part(1.9, 1.9, 1.9, 0x190f30, 0, 0, 0, { e: 0x2a0d3a, ei: 0.6 }));
+  g.add(part(0.36, 0.36, 0.16, 0xff5a7a, -0.42, 0.3, 0.96, { e: 0xd6304a, ei: 1.8 }));
+  g.add(part(0.36, 0.36, 0.16, 0xff5a7a, 0.42, 0.3, 0.96, { e: 0xd6304a, ei: 1.8 }));
+  for (let i = -2; i <= 2; i++) g.add(part(0.18, 0.5, 0.18, 0x120a26, i * 0.4, 1.1, 0, { e: 0x2a0d3a, ei: 0.5 })); // crown of spikes
+  g.position.set(x, surfaceY(x, z) + 1.5, z); g.userData = { hp: 9, x, z, lastHit: 0, yoff: 1.5, boss: true };
+  scene.add(g); enemies.push(g);
+  showMsg('A GREAT SHADOW rises! Stand firm in the Lord.');
+}
 
 // ---------- particles ----------
 const sparks = [];
@@ -415,6 +458,8 @@ const hintEl = document.getElementById('hint');
 let mode = 'fight';
 function setHint() {
   document.getElementById('modeTxt').textContent = mode.toUpperCase();
+  const ta = document.getElementById('tAct'); if (ta) ta.textContent = mode === 'fight' ? '⚔' : '⛏';
+  const tp = document.getElementById('tPlace'); if (tp) tp.style.display = mode === 'build' ? '' : 'none';
   hintEl.innerHTML = mode === 'fight'
     ? 'WASD move · Space jump · drag look · <b>left-click</b> swing · <b>E</b> talk to saints · find the 6 Armor pieces · Tab → build'
     : 'WASD move · 1-7 pick block · <b>left-click</b> break · <b>shift+click</b> place · <b>E</b> talk to saints · Tab → fight';
@@ -423,10 +468,14 @@ function setHint() {
 
 // ---------- input ----------
 const keys = {};
+function doJump() { if (!jumping) { vy = armorSet.shoes ? 8.6 : 6.4; jumping = true; } }
+function toggleMode() { mode = mode === 'fight' ? 'build' : 'fight'; setHint(); }
+function actPrimary() { if (mode === 'fight') swingSword(); else editBlock(new THREE.Vector2(0, 0), false); }
+function actPlace() { if (mode === 'build') editBlock(new THREE.Vector2(0, 0), true); }
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (e.code === 'Space') { e.preventDefault(); if (!jumping) { vy = armorSet.shoes ? 8.6 : 6.4; jumping = true; } }
-  if (e.code === 'Tab') { e.preventDefault(); mode = mode === 'fight' ? 'build' : 'fight'; setHint(); }
+  if (e.code === 'Space') { e.preventDefault(); doJump(); }
+  if (e.code === 'Tab') { e.preventDefault(); toggleMode(); }
   if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < BUILD_TYPES.length) { sel = n; drawHotbar(); } }
   if (e.code === 'KeyE') talkSaint();
 });
@@ -452,7 +501,13 @@ function swingSword() {
     const dx = en.userData.x - heroX, dz = en.userData.z - heroZ, d = Math.hypot(dx, dz);
     if (d < reach && (dx * f.x + dz * f.z) > -0.3) {
       en.userData.hp -= hit;
-      if (en.userData.hp <= 0) { burst(en.position.clone()); scene.remove(en); enemies.splice(enemies.indexOf(en), 1); banished++; updHUD(); markDirty(); }
+      if (en.userData.hp <= 0) {
+        burst(en.position.clone(), en.userData.boss ? [0xf4d03f, 0xffffff, 0x8fe6ff, 0xbdf0a0] : undefined);
+        scene.remove(en); enemies.splice(enemies.indexOf(en), 1);
+        if (en.userData.boss) { bossAlive = false; bossDefeated = true; faith = 100; showMsg('The Great Shadow is vanquished! "The light shines in the darkness." (Jn 1:5)'); }
+        else banished++;
+        updHUD(); markDirty();
+      }
       else burst(en.position.clone(), [0x8fe6ff, 0xffffff]);
     }
   });
@@ -477,8 +532,9 @@ function editBlock(ndc, place) {
 }
 function facing() { const f = new THREE.Vector3(); camera.getWorldDirection(f); f.y = 0; f.normalize(); return f; }
 
-// ---------- save / load (localStorage) ----------
-const SAVE_KEY = 'lumen_save_v1';
+// ---------- save / load (localStorage, with 3 slots) ----------
+let slot = 1; try { slot = +(localStorage.getItem('lumen_slot')) || 1; } catch (e) { }
+function SAVE_KEY() { return 'lumen_save_v1_s' + slot; }
 const TYPE_LIST = Object.keys(T), TYPE_IDX = {}; TYPE_LIST.forEach((k, i) => TYPE_IDX[k] = i);
 let dirty = false, saveTimer = 0;
 function markDirty() { dirty = true; }
@@ -489,28 +545,37 @@ function doSave() {
   try {
     const w = new Array(world.size * 4); let i = 0;
     for (const [k, type] of world) { const c = k.split(','); w[i++] = +c[0]; w[i++] = +c[1]; w[i++] = +c[2]; w[i++] = TYPE_IDX[type]; }
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
-      v: 1, w, hero: [heroX, heroZ], armor: armorSet, armorN: armor, faith, banished, placed: placedCount,
+    localStorage.setItem(SAVE_KEY(), JSON.stringify({
+      v: 1, w, hero: [heroX, heroZ], armor: armorSet, armorN: armor, faith, banished, placed: placedCount, bossDone: bossDefeated,
       quests: saints.map(s => ({ a: s.userData.quest.accepted, d: s.userData.quest.done, b: s.userData.quest.baseline })),
     }));
     dirty = false; flashSaved();
   } catch (e) { /* storage unavailable (private mode / quota) */ }
 }
 function doLoad() {
-  let d; try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { }
+  let d; try { d = JSON.parse(localStorage.getItem(SAVE_KEY())); } catch (e) { }
   if (!d || !d.w) return false;
   world.clear(); colTop.clear();
   for (let i = 0; i < d.w.length; i += 4) setBlock(d.w[i], d.w[i + 1], d.w[i + 2], TYPE_LIST[d.w[i + 3]]);
   remesh();
   heroX = d.hero[0]; heroZ = d.hero[1]; faith = d.faith; banished = d.banished || 0; placedCount = d.placed || 0;
-  Object.assign(armorSet, d.armor || {}); armor = d.armorN || 0;
+  Object.assign(armorSet, d.armor || {}); armor = d.armorN || 0; bossDefeated = !!d.bossDone;
   pickups.forEach(p => { if (armorSet[p.userData.id]) { p.userData.taken = true; p.userData.attach(p); } });
   (d.quests || []).forEach((q, i) => { const s = saints[i]; if (!s) return; const qq = s.userData.quest; qq.accepted = q.a; qq.done = q.d; qq.baseline = q.b; if (q.d) s.userData.mark.visible = false; });
   updHUD(); return true;
 }
 addEventListener('keydown', e => { if (e.code === 'KeyO') doSave(); });
 addEventListener('beforeunload', () => { try { doSave(); } catch (e) { } });
-document.getElementById('newworld').addEventListener('click', () => { try { localStorage.removeItem(SAVE_KEY); } catch (e) { } location.reload(); });
+document.getElementById('newworld').addEventListener('click', () => { try { localStorage.removeItem(SAVE_KEY()); } catch (e) { } location.reload(); });
+function setSlot(n) { try { doSave(); localStorage.setItem('lumen_slot', n); } catch (e) { } location.reload(); }
+document.querySelectorAll('#slots [data-slot]').forEach(b => b.addEventListener('click', () => setSlot(+b.getAttribute('data-slot'))));
+document.querySelectorAll('#slots [data-slot]').forEach(b => { if (+b.getAttribute('data-slot') === slot) b.classList.add('on'); });
+
+// on-screen touch controls (also work with a mouse)
+function bindHold(btn, code) { btn.addEventListener('pointerdown', e => { e.preventDefault(); keys[code] = true; }); const off = () => { keys[code] = false; }; btn.addEventListener('pointerup', off); btn.addEventListener('pointerleave', off); btn.addEventListener('pointercancel', off); }
+document.querySelectorAll('#dpad .tb').forEach(b => bindHold(b, b.getAttribute('data-k')));
+function tap(id, fn) { document.getElementById(id).addEventListener('pointerup', e => { e.preventDefault(); fn(); }); }
+tap('tAct', actPrimary); tap('tPlace', actPlace); tap('tJump', doJump); tap('tMode', toggleMode); tap('tTalk', talkSaint);
 
 // ---------- loop ----------
 let vy = 0, jumping = false;
@@ -549,6 +614,7 @@ function frame() {
   if (armorSet.helmet && faith < 100) { faith = Math.min(100, faith + 4 * dt); updHUD(); }
   // enemies chase + attack
   spawnTimer += dt; if (spawnTimer > 5 && enemies.length < 7) { spawnTimer = 0; spawnEnemy(); }
+  if (!bossAlive && !bossDefeated && banished >= 6) spawnBoss();
   enemies.forEach(en => {
     const dx = heroX - en.userData.x, dz = heroZ - en.userData.z, d = Math.hypot(dx, dz) || 1;
     if (d > 1.25) {
@@ -559,14 +625,18 @@ function frame() {
     }
     else if (t - en.userData.lastHit > 1.1) {
       en.userData.lastHit = t;
-      let dmg = 9; if (armorSet.breastplate) dmg *= 0.5;
+      let dmg = en.userData.boss ? 16 : 9; if (armorSet.breastplate) dmg *= 0.5;
       if (armorSet.shield && Math.random() < 0.4) { dmg = 0; showMsg('Faith blocks the blow!'); }
       faith = Math.max(0, faith - dmg); updHUD(); burst(en.position.clone(), [0xb08bd0]);
     }
-    en.position.set(en.userData.x, surfaceY(en.userData.x, en.userData.z) + 0.9 + Math.sin(t * 3 + en.userData.x) * 0.12, en.userData.z);
+    en.position.set(en.userData.x, surfaceY(en.userData.x, en.userData.z) + en.userData.yoff + Math.sin(t * 3 + en.userData.x) * 0.12, en.userData.z);
     en.rotation.y = Math.atan2(dx, dz);
   });
-  if (faith <= 0) { faith = 100; heroX = 0; heroZ = 4; showMsg('Take heart — rise and stand again!'); enemies.slice(0, 2).forEach(e => { scene.remove(e); }); enemies.splice(0, 2); updHUD(); }
+  if (faith <= 0) {
+    faith = 100; heroX = 0; heroZ = 4; showMsg('Take heart — rise and stand again!');
+    let removed = 0; for (let i = enemies.length - 1; i >= 0 && removed < 2; i--) { if (!enemies[i].userData.boss) { scene.remove(enemies[i]); enemies.splice(i, 1); removed++; } }
+    updHUD();
+  }
   // sparks
   for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.userData.life -= dt; s.position.addScaledVector(s.userData.v, dt); s.userData.v.y -= 6 * dt; s.material.opacity = Math.max(0, s.userData.life); s.scale.setScalar(Math.max(0.1, s.userData.life)); if (s.userData.life <= 0) { scene.remove(s); sparks.splice(i, 1); } }
   // camera follows hero
@@ -585,7 +655,7 @@ if (!doLoad()) doSave();   // restore a saved world, or persist the fresh one on
 controls.target.set(heroX, hero.position.y + 1.4, heroZ);
 renderer.render(scene, camera);
 requestAnimationFrame(frame);
-window.__lumen = { scene, camera, hero, renderer, controls, enemies, world, pickups, armorSet, saints, get faith() { return faith; }, get armor() { return armor; }, get banished() { return banished; }, get mode() { return mode; }, spawnEnemy, heroPos: () => [heroX, heroZ] };
+window.__lumen = { scene, camera, hero, renderer, controls, enemies, world, pickups, armorSet, saints, spawnEnemy, spawnBoss, get faith() { return faith; }, get armor() { return armor; }, get banished() { return banished; }, get mode() { return mode; }, get bossAlive() { return bossAlive; }, get bossDefeated() { return bossDefeated; }, get slot() { return slot; }, heroPos: () => [heroX, heroZ] };
 </script>
 </body>
 </html>
