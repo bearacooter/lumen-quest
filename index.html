@@ -29,6 +29,7 @@
   .bar>i{display:block;height:100%;}
   #faithFill{background:#bdf0a0;width:100%;}
   #heroName{top:44px;left:14px;font-size:8px;color:#bdf0a0;}
+  #fps{top:44px;right:14px;font-size:7px;color:#9aa0e0;}
   #mode{top:60px;left:12px;font-size:8px;}
   #mode b{color:#8fe6ff;}
   #hint{bottom:10px;left:0;right:0;text-align:center;font-size:7px;color:#c9d0ff;line-height:1.9;}
@@ -77,6 +78,7 @@
   <canvas id="c"></canvas>
   <div class="ui" id="title">LUMEN<small>armor of god</small></div>
   <div class="ui" id="heroName"></div>
+  <div class="ui" id="fps">…</div>
   <div class="ui" id="stats">
     <div>FAITH <span class="bar"><i id="faithFill"></i></span></div>
     <div id="armorTxt" class="badge">Armor 0/2</div>
@@ -137,11 +139,13 @@ camera.position.set(10, 10, 16);
 let camYaw = 0, camPitch = 0.6, camDist = 12, lastDragMs = -9999, heroMoving = false;
 const camTarget = new THREE.Vector3(0, 5, 4), _cv = new THREE.Vector3();
 function applyCamera(dt) {
+  // safety: never let camera state go non-finite (would otherwise hang/garble)
+  if (!isFinite(camYaw)) camYaw = 0; if (!isFinite(camPitch)) camPitch = 0.6; if (!isFinite(camDist)) camDist = 12;
   const k = Math.min(1, dt * 8);
   _cv.set(heroX, hero.position.y + 1.6, heroZ);
   camTarget.lerp(_cv, k);                                  // smooth target (irons out stair-steps)
   if (heroMoving && performance.now() - lastDragMs > 1100) { // auto-trail behind the hero
-    let d = hero.rotation.y - camYaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+    const dy = hero.rotation.y - camYaw, d = Math.atan2(Math.sin(dy), Math.cos(dy)); // loop-free wrap to [-pi,pi]
     camYaw += d * Math.min(1, dt * 1.6);
   }
   const hor = camDist * Math.cos(camPitch), ver = camDist * Math.sin(camPitch);
@@ -763,8 +767,10 @@ tap('tAct', actPrimary); tap('tBolt', fireBolt); tap('tPlace', actPlace); tap('t
 // ---------- loop ----------
 let vy = 0, jumping = false, walkPhase = 0;
 const clock = new THREE.Clock();
+const fpsEl = document.getElementById('fps'); let fpsT = 0, fpsN = 0, frameCount = 0;
 function frame() {
   const dt = Math.min(0.05, clock.getDelta()), t = clock.elapsedTime;
+  frameCount++; fpsT += dt; fpsN++; if (fpsT >= 0.5) { fpsEl.textContent = Math.round(fpsN / fpsT) + ' fps · f' + frameCount; fpsT = 0; fpsN = 0; }
   updateDayNight(t);
   if (!started) { applyCamera(dt); renderer.render(scene, camera); requestAnimationFrame(frame); return; }
   // movement (camera-relative, with wall collision via step height)
