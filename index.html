@@ -109,6 +109,10 @@ controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.49;
 controls.minDistance = 4; controls.maxDistance = 40;
 controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
 controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+// third-person follow: the camera trails behind the hero, but yields to manual look
+let dragging = false, lastDragMs = -9999, heroMoving = false;
+controls.addEventListener('start', () => { dragging = true; });
+controls.addEventListener('end', () => { dragging = false; lastDragMs = performance.now(); });
 
 scene.add(new THREE.HemisphereLight(0xdcefff, 0x4f6a3c, 0.9));
 const sun = new THREE.DirectionalLight(0xfff6df, 1.15);
@@ -116,6 +120,9 @@ sun.position.set(20, 30, 14); sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 const S = 40; Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 1, far: 90 });
 scene.add(sun);
+
+// core run-state (declared early so spawners/quests can read it safely)
+let faith = 100, armor = 0, banished = 0;
 
 // ---------- block types (NO ORANGE) ----------
 const T = {
@@ -325,9 +332,17 @@ scene.add(hero);
 const armorSet = { belt: false, shoes: false, breastplate: false, shield: false, helmet: false, sword: false };
 const ARMOR_TOTAL = 6;
 const pickups = [];
-function makePiece(id, name, power, x, z, build, attach) {
+function makePiece(id, name, power, x, z, build, attach, questOnly) {
   const g = new THREE.Group(); build(g); g.position.set(x, surfaceY(x, z) + 1.2, z);
-  g.userData = { id, name, power, x, z, taken: false, attach }; scene.add(g); pickups.push(g); return g;
+  g.userData = { id, name, power, x, z, taken: !!questOnly, attach };
+  if (!questOnly) scene.add(g);   // quest-only pieces are granted by a saint, not found
+  pickups.push(g); return g;
+}
+function grantPiece(id) {
+  const p = pickups.find(pp => pp.userData.id === id);
+  if (!p || armorSet[id]) return;
+  armorSet[id] = true; armor++; p.userData.taken = true; p.userData.attach(p);
+  updHUD(); markDirty();
 }
 makePiece('belt', 'Belt of Truth', 'quick, steady steps', 6, 9,
   g => { g.add(part(0.9, 0.2, 0.5, 0xdcc97a, 0, 0, 0, { e: 0xb8860b, ei: 0.4 })); g.add(part(0.24, 0.24, 0.55, 0xf4d03f, 0, 0, 0, { e: 0xb8860b, ei: 0.6 })); },
@@ -337,16 +352,16 @@ makePiece('shoes', 'Shoes of the Gospel', 'a higher, surer leap', POND.x + POND.
   g => { hero.add(g); g.position.set(0, 0.16, 0); g.scale.setScalar(0.7); });
 makePiece('breastplate', 'Breastplate of Righteousness', 'shadows wound you less', 20, -8,
   g => { g.add(part(0.82, 0.9, 0.4, 0xc6cfdc, 0, 0, 0, {})); g.add(part(0.5, 0.22, 0.42, 0xf4d03f, 0, 0.16, 0, { e: 0xb8860b, ei: 0.6 })); },
-  g => { hero.add(g); g.position.set(0, 1.1, 0.03); g.scale.setScalar(0.92); });
+  g => { hero.add(g); g.position.set(0, 1.1, 0.03); g.scale.setScalar(0.92); }, true);
 makePiece('shield', 'Shield of Faith', 'a chance to block all harm', 17, 12,
   g => { g.add(part(0.74, 0.92, 0.12, 0xc6cfdc, 0, 0, 0, {})); g.add(part(0.12, 0.62, 0.06, 0xf4d03f, 0, 0.02, 0.09, { e: 0xb8860b, ei: 0.7 })); g.add(part(0.46, 0.12, 0.06, 0xf4d03f, 0, 0.12, 0.09, { e: 0xb8860b, ei: 0.7 })); },
   g => { hero.add(g); g.position.set(-0.6, 1.1, 0.1); g.scale.setScalar(0.8); g.rotation.set(0, 0, 0); });
 makePiece('helmet', 'Helmet of Salvation', 'your Faith slowly returns', 0, -19,
   g => { g.add(part(0.6, 0.4, 0.6, 0xc6cfdc, 0, 0, 0, {})); g.add(part(0.64, 0.14, 0.64, 0xf4d03f, 0, 0.24, 0, { e: 0xb8860b, ei: 0.6 })); },
-  g => { hero.add(g); g.position.set(0, 2.18, 0); g.scale.setScalar(0.7); });
+  g => { hero.add(g); g.position.set(0, 2.18, 0); g.scale.setScalar(0.7); }, true);
 makePiece('sword', 'Sword of the Spirit', 'your blade strikes far & true', 23, 22,
   g => { g.add(part(0.14, 1.2, 0.07, 0xdfffff, 0, 0.4, 0, { e: 0x8fe6ff, ei: 1.6 })); g.add(part(0.5, 0.12, 0.12, 0xf4d03f, 0, -0.25, 0, { e: 0xb8860b, ei: 0.6 })); },
-  g => { scene.remove(g); }); // tempers the blade you already carry
+  g => { scene.remove(g); }, true); // tempers the blade you already carry
 
 // ---------- saint quest-givers ----------
 let placedCount = 0;
@@ -364,13 +379,13 @@ function makeSaint(name, x, z, lines, quest) {
 }
 makeSaint('ST. MICHAEL the Archangel', -11, -2,
   ['Courage, soldier of Christ! Shadows trouble this land.', 'Stand firm — the victory is the Lord\'s.'],
-  { type: 'banish', target: 6, desc: 'Banish 6 shadows.', reward: 'Heaven stands with the brave. Your faith is restored!', accepted: false, done: false, baseline: 0 });
+  { type: 'banish', target: 6, grant: 'sword', desc: 'Banish 6 shadows.', reward: 'Take up the Sword of the Spirit!', accepted: false, done: false, baseline: 0 });
 makeSaint('ST. JOSEPH the Worker', 16, 11,
   ['Honest work is a prayer. This village needs builders.', 'Well built, friend. Keep at it, quietly and faithfully.'],
-  { type: 'place', target: 12, desc: 'Place 12 blocks to help build.', reward: 'A job done with love. Be refreshed!', accepted: false, done: false, baseline: 0 });
+  { type: 'place', target: 12, grant: 'breastplate', desc: 'Place 12 blocks to help build.', reward: 'Wear the Breastplate of Righteousness!', accepted: false, done: false, baseline: 0 });
 makeSaint('ST. THÉRÈSE of the Child Jesus', POND.x + 2, POND.z - 2,
   ['Do small things with great love.', 'You have put on Christ. Go gently, and shine.'],
-  { type: 'armor', target: 6, desc: 'Gather all six pieces of the Armor of God.', reward: 'Clothed in grace! Walk in peace.', accepted: false, done: false, baseline: 0 });
+  { type: 'armor', target: 3, grant: 'helmet', desc: 'Gather 3 pieces of the Armor first.', reward: 'Receive the Helmet of Salvation!', accepted: false, done: false, baseline: 0 });
 
 function progressOf(q) { return q.type === 'banish' ? banished - q.baseline : q.type === 'place' ? placedCount - q.baseline : armor; }
 const saintBox = document.getElementById('saintbox');
@@ -382,14 +397,25 @@ function talkSaint() {
   const q = best.userData.quest;
   let txt;
   if (!q.accepted) { q.accepted = true; q.baseline = q.type === 'banish' ? banished : q.type === 'place' ? placedCount : 0; txt = best.userData.lines[0] + '  ❖ Quest: ' + q.desc; }
-  else if (!q.done) { const p = Math.max(0, progressOf(q)); if (p >= q.target) { q.done = true; faith = Math.min(100, faith + 40); updHUD(); best.userData.mark.visible = false; txt = 'Well done! ' + q.reward; markDirty(); } else txt = q.desc + '  (' + p + ' / ' + q.target + ')'; }
+  else if (!q.done) { const p = Math.max(0, progressOf(q)); if (p >= q.target) { q.done = true; if (q.grant) grantPiece(q.grant); faith = Math.min(100, faith + 40); updHUD(); best.userData.mark.visible = false; txt = 'Well done! ' + q.reward; markDirty(); } else txt = q.desc + '  (' + p + ' / ' + q.target + ')'; }
   else txt = best.userData.lines[1] || 'Go in peace.';
   showSaint(best.userData.name, txt);
 }
 
 // ---------- shadow enemies ----------
 const enemies = [];
-function spawnEnemy() {
+const ENEMY_TYPES = {
+  wisp:   { hp: 1, size: 0.6,  body: 0x2a2150, eye: 0xa0e0ff, eyeE: 0x6fd0ff, speed: 2.7, dmg: 5,  yoff: 0.8 },
+  shadow: { hp: 2, size: 0.95, body: 0x231a40, eye: 0xc89bf0, eyeE: 0xb08bd0, speed: 1.7, dmg: 9,  yoff: 0.9 },
+  brute:  { hp: 4, size: 1.3,  body: 0x171026, eye: 0xff8a8a, eyeE: 0xd6304a, speed: 1.05, dmg: 14, yoff: 1.1 },
+};
+function chooseType() {
+  const r = Math.random();
+  if (banished < 3) return r < 0.5 ? 'wisp' : 'shadow';
+  if (banished < 8) return r < 0.3 ? 'wisp' : r < 0.8 ? 'shadow' : 'brute';
+  return r < 0.2 ? 'wisp' : r < 0.55 ? 'shadow' : 'brute';
+}
+function spawnEnemy(typeName) {
   let x, z, ok = false;
   for (let tries = 0; tries < 24 && !ok; tries++) {
     const ang = Math.random() * Math.PI * 2, rad = 9 + Math.random() * 6;
@@ -397,14 +423,17 @@ function spawnEnemy() {
     z = Math.max(-R + 1, Math.min(R - 1, Math.round(heroZ + Math.sin(ang) * rad)));
     const top = colTop.get(XZ(x, z));
     const tt = top != null ? world.get(K(x, top, z)) : null;
-    ok = top != null && top <= 5 && (tt === 'grass' || tt === 'dirt' || tt === 'leaf'); // natural ground only, not the shrine
+    ok = top != null && top <= 5 && (tt === 'grass' || tt === 'dirt' || tt === 'leaf');
   }
   if (!ok) return;
+  const tp = ENEMY_TYPES[typeName || chooseType()];
   const g = new THREE.Group();
-  g.add(part(0.95, 0.95, 0.95, 0x231a40, 0, 0, 0, { e: 0x140d2a, ei: 0.4 }));
-  g.add(part(0.18, 0.18, 0.1, 0xc89bf0, -0.2, 0.12, 0.46, { e: 0xb08bd0, ei: 1.6 }));
-  g.add(part(0.18, 0.18, 0.1, 0xc89bf0, 0.2, 0.12, 0.46, { e: 0xb08bd0, ei: 1.6 }));
-  g.position.set(x, surfaceY(x, z) + 0.9, z); g.userData = { hp: 2, x, z, lastHit: 0, yoff: 0.9 };
+  g.add(part(tp.size, tp.size, tp.size, tp.body, 0, 0, 0, { e: 0x140d2a, ei: 0.4 }));
+  const ez = tp.size / 2 + 0.01, ey = tp.size * 0.13, ex = tp.size * 0.21, es = tp.size * 0.2;
+  g.add(part(es, es, 0.1, tp.eye, -ex, ey, ez, { e: tp.eyeE, ei: 1.6 }));
+  g.add(part(es, es, 0.1, tp.eye, ex, ey, ez, { e: tp.eyeE, ei: 1.6 }));
+  g.position.set(x, surfaceY(x, z) + tp.yoff, z);
+  g.userData = { hp: tp.hp, x, z, lastHit: 0, yoff: tp.yoff, speed: tp.speed, dmg: tp.dmg };
   scene.add(g); enemies.push(g);
 }
 for (let i = 0; i < 4; i++) spawnEnemy();
@@ -421,7 +450,7 @@ function spawnBoss() {
   g.add(part(0.36, 0.36, 0.16, 0xff5a7a, -0.42, 0.3, 0.96, { e: 0xd6304a, ei: 1.8 }));
   g.add(part(0.36, 0.36, 0.16, 0xff5a7a, 0.42, 0.3, 0.96, { e: 0xd6304a, ei: 1.8 }));
   for (let i = -2; i <= 2; i++) g.add(part(0.18, 0.5, 0.18, 0x120a26, i * 0.4, 1.1, 0, { e: 0x2a0d3a, ei: 0.5 })); // crown of spikes
-  g.position.set(x, surfaceY(x, z) + 1.5, z); g.userData = { hp: 9, x, z, lastHit: 0, yoff: 1.5, boss: true };
+  g.position.set(x, surfaceY(x, z) + 1.5, z); g.userData = { hp: 9, x, z, lastHit: 0, yoff: 1.5, boss: true, speed: 1.0, dmg: 16 };
   scene.add(g); enemies.push(g);
   showMsg('A GREAT SHADOW rises! Stand firm in the Lord.');
 }
@@ -439,7 +468,6 @@ function burst(pos, cols = [0x8fe6ff, 0xf4d03f, 0xffffff, 0xbdf0a0]) {
 // ---------- UI ----------
 const msgEl = document.getElementById('msg'); let msgT = 0;
 function showMsg(t) { msgEl.textContent = t; msgEl.style.opacity = 1; msgT = 2.4; }
-let faith = 100, armor = 0, banished = 0;
 const faithFill = document.getElementById('faithFill');
 function updHUD() {
   faithFill.style.width = Math.max(0, faith) + '%';
@@ -587,6 +615,7 @@ function frame() {
   const mv = new THREE.Vector3();
   if (keys['KeyW']) mv.add(fwd); if (keys['KeyS']) mv.sub(fwd);
   if (keys['KeyD']) mv.add(right); if (keys['KeyA']) mv.sub(right);
+  heroMoving = mv.lengthSq() > 0;
   if (mv.lengthSq()) {
     mv.normalize().multiplyScalar((armorSet.belt ? 6.4 : 5) * dt);
     const feet = hero.position.y, STEP = 1.1;
@@ -619,13 +648,14 @@ function frame() {
     const dx = heroX - en.userData.x, dz = heroZ - en.userData.z, d = Math.hypot(dx, dz) || 1;
     if (d > 1.25) {
       const cur = surfaceY(en.userData.x, en.userData.z);
-      const nx = en.userData.x + (dx / d) * 1.7 * dt, nz = en.userData.z + (dz / d) * 1.7 * dt;
+      const sp = en.userData.speed || 1.7;
+      const nx = en.userData.x + (dx / d) * sp * dt, nz = en.userData.z + (dz / d) * sp * dt;
       if (surfaceY(nx, en.userData.z) - cur <= 1.1) en.userData.x = nx;
       if (surfaceY(en.userData.x, nz) - cur <= 1.1) en.userData.z = nz;
     }
     else if (t - en.userData.lastHit > 1.1) {
       en.userData.lastHit = t;
-      let dmg = en.userData.boss ? 16 : 9; if (armorSet.breastplate) dmg *= 0.5;
+      let dmg = en.userData.dmg || 9; if (armorSet.breastplate) dmg *= 0.5;
       if (armorSet.shield && Math.random() < 0.4) { dmg = 0; showMsg('Faith blocks the blow!'); }
       faith = Math.max(0, faith - dmg); updHUD(); burst(en.position.clone(), [0xb08bd0]);
     }
@@ -639,7 +669,11 @@ function frame() {
   }
   // sparks
   for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.userData.life -= dt; s.position.addScaledVector(s.userData.v, dt); s.userData.v.y -= 6 * dt; s.material.opacity = Math.max(0, s.userData.life); s.scale.setScalar(Math.max(0.1, s.userData.life)); if (s.userData.life <= 0) { scene.remove(s); sparks.splice(i, 1); } }
-  // camera follows hero
+  // camera follows hero (trails behind when walking; manual look takes over while dragging)
+  if (heroMoving && !dragging && performance.now() - lastDragMs > 1400) {
+    const fx = Math.sin(hero.rotation.y), fz = Math.cos(hero.rotation.y);
+    camera.position.lerp(new THREE.Vector3(heroX - fx * 8, hero.position.y + 5.5, heroZ - fz * 8), 0.04);
+  }
   controls.target.lerp(new THREE.Vector3(heroX, hero.position.y + 1.4, heroZ), 0.12);
   controls.update();
   saints.forEach(s => { s.userData.mark.rotation.y += dt * 2; s.userData.mark.position.y = 2.45 + Math.sin(t * 2) * 0.1; });
