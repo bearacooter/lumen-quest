@@ -46,6 +46,17 @@
   #acts{position:fixed;right:12px;bottom:16px;display:grid;grid-template-columns:repeat(2,52px);gap:7px;z-index:9;}
   #acts .tb{height:46px;font-size:9px;}
   #acts .tb.act{height:46px;font-size:18px;color:#bdf0a0;border-color:#3f7a30;}
+  #start{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(120% 90% at 50% 0%, rgba(40,44,90,.5), rgba(10,11,22,.82));}
+  .startcard{text-align:center;background:rgba(20,21,43,.92);border:2px solid #dcc97a;border-radius:14px;padding:22px 26px;box-shadow:0 16px 40px rgba(0,0,0,.5);max-width:90vw;}
+  .startcard h1{margin:0;font-size:30px;color:#f4d03f;letter-spacing:3px;text-shadow:0 3px 0 #7a5a00,0 0 16px rgba(244,208,63,.4);}
+  .startcard .sub{margin:6px 0 18px;font-size:8px;color:#cfe0ff;}
+  .startcard label{display:block;font-size:8px;color:#9fd0ff;margin:0 0 7px;}
+  #nameInput{font-family:inherit;font-size:11px;text-align:center;color:#fff;background:#11132b;border:2px solid #4a4d8c;border-radius:8px;padding:9px 10px;width:200px;max-width:70vw;outline:none;}
+  #nameInput:focus{border-color:#f4d03f;}
+  #startBtn{display:block;margin:16px auto 0;font-family:inherit;font-size:11px;letter-spacing:1px;color:#0e2207;background:#6fae3f;border:2px solid #2c5a20;border-bottom-width:5px;border-radius:9px;padding:11px 16px;cursor:pointer;}
+  #startBtn:active{transform:translateY(2px);border-bottom-width:3px;}
+  .startcard .tip{margin:16px 0 0;font-size:7px;color:#9aa0e0;line-height:1.7;}
   #cross{position:fixed;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;pointer-events:none;opacity:.5;}
   #cross::before,#cross::after{content:'';position:absolute;background:#fff;}
   #cross::before{left:4px;top:0;width:2px;height:10px;}
@@ -84,6 +95,16 @@
     <button class="tb" id="tTalk">&#10022;</button>
   </div>
   <div class="ui" id="hint"></div>
+  <div id="start">
+    <div class="startcard">
+      <h1>LUMEN</h1>
+      <p class="sub">armor of god &mdash; a 3D quest</p>
+      <label for="nameInput">name your hero</label>
+      <input id="nameInput" maxlength="14" placeholder="Hero" autocomplete="off" spellcheck="false">
+      <button id="startBtn">ENTER THE GARDEN</button>
+      <p class="tip">explore &middot; build &middot; stand firm &middot; gather the Armor of God</p>
+    </div>
+  </div>
 
 <script type="importmap">
 { "imports": {
@@ -139,8 +160,30 @@ function updateDayNight(t) {
 }
 
 // core run-state (declared early so spawners/quests can read it safely)
-let faith = 100, armor = 0, banished = 0;
+let faith = 100, armor = 0, banished = 0, started = false;
 const villagers = []; let villagersSafe = 0;
+
+// ---------- gentle audio (WebAudio, no files; starts on first click) ----------
+const AC = window.AudioContext || window.webkitAudioContext; let audio = null;
+function initAudio() { try { if (!audio && AC) audio = new AC(); if (audio && audio.state === 'suspended') audio.resume(); } catch (e) { } }
+function blip(freq, dur, type, vol) {
+  if (!audio) return;
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = type || 'square'; o.frequency.value = freq; g.gain.value = vol || 0.05;
+  o.connect(g); g.connect(audio.destination); const t = audio.currentTime;
+  g.gain.setValueAtTime(g.gain.value, t); g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.12));
+  o.start(t); o.stop(t + (dur || 0.12));
+}
+const sfx = {
+  swing() { blip(760, 0.12, 'sawtooth', 0.025); blip(380, 0.1, 'sine', 0.02); },
+  hit() { blip(150, 0.1, 'square', 0.06); },
+  banish() { [660, 880, 1180].forEach((f, i) => setTimeout(() => blip(f, 0.14, 'triangle', 0.05), i * 55)); },
+  pickup() { [700, 1040].forEach((f, i) => setTimeout(() => blip(f, 0.12, 'triangle', 0.06), i * 70)); },
+  jump() { blip(520, 0.08, 'square', 0.03); },
+  hurt() { blip(190, 0.16, 'sine', 0.05); },
+  quest() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.18, 'sine', 0.05), i * 110)); },
+  boss() { [196, 147].forEach((f, i) => setTimeout(() => blip(f, 0.3, 'sawtooth', 0.05), i * 150)); },
+};
 
 // ---------- block types (NO ORANGE) ----------
 const T = {
@@ -319,6 +362,9 @@ function hut(cx, cz, w, d) {
 }
 hut(16, 8, 2, 2); hut(21, 13, 2, 1); hut(15, 16, 1, 2);
 
+// keep the spawn clear of trees so you never start stuck
+for (let x = -2; x <= 2; x++) for (let z = 2; z <= 6; z++) for (let y = 2; y <= 10; y++) { const tt = world.get(K(x, y, z)); if (tt === 'leaf' || tt === 'trunk') removeBlock(x, y, z); }
+
 remesh();
 
 // ---------- hero ----------
@@ -360,7 +406,7 @@ function grantPiece(id) {
   const p = pickups.find(pp => pp.userData.id === id);
   if (!p || armorSet[id]) return;
   armorSet[id] = true; armor++; p.userData.taken = true; p.userData.attach(p);
-  updHUD(); markDirty();
+  updHUD(); markDirty(); sfx.pickup();
 }
 makePiece('belt', 'Belt of Truth', 'quick, steady steps', 6, 9,
   g => { g.add(part(0.9, 0.2, 0.5, 0xdcc97a, 0, 0, 0, { e: 0xb8860b, ei: 0.4 })); g.add(part(0.24, 0.24, 0.55, 0xf4d03f, 0, 0, 0, { e: 0xb8860b, ei: 0.6 })); },
@@ -415,7 +461,7 @@ function talkSaint() {
   const q = best.userData.quest;
   let txt;
   if (!q.accepted) { q.accepted = true; q.baseline = q.type === 'banish' ? banished : q.type === 'place' ? placedCount : 0; txt = best.userData.lines[0] + '  ❖ Quest: ' + q.desc; }
-  else if (!q.done) { const p = Math.max(0, progressOf(q)); if (p >= q.target) { q.done = true; if (q.grant) grantPiece(q.grant); faith = Math.min(100, faith + 40); updHUD(); best.userData.mark.visible = false; txt = 'Well done! ' + q.reward; markDirty(); } else txt = q.desc + '  (' + p + ' / ' + q.target + ')'; }
+  else if (!q.done) { const p = Math.max(0, progressOf(q)); if (p >= q.target) { q.done = true; if (q.grant) grantPiece(q.grant); faith = Math.min(100, faith + 40); updHUD(); best.userData.mark.visible = false; txt = 'Well done! ' + q.reward; markDirty(); sfx.quest(); } else txt = q.desc + '  (' + p + ' / ' + q.target + ')'; }
   else txt = best.userData.lines[1] || 'Go in peace.';
   showSaint(best.userData.name, txt);
 }
@@ -471,7 +517,7 @@ function spawnBoss() {
   for (let i = -2; i <= 2; i++) g.add(part(0.18, 0.5, 0.18, 0x120a26, i * 0.4, 1.1, 0, { e: 0x2a0d3a, ei: 0.5 })); // crown of spikes
   g.position.set(x, surfaceY(x, z) + 1.5, z); g.userData = { hp: 9, x, z, lastHit: 0, yoff: 1.5, boss: true, speed: 1.0, dmg: 16 };
   scene.add(g); enemies.push(g);
-  showMsg('A GREAT SHADOW rises! Stand firm in the Lord.');
+  showMsg('A GREAT SHADOW rises! Stand firm in the Lord.'); sfx.boss();
 }
 
 // ---------- villagers to protect ----------
@@ -533,7 +579,7 @@ function setHint() {
 
 // ---------- input ----------
 const keys = {};
-function doJump() { if (!jumping) { vy = armorSet.shoes ? 8.6 : 6.4; jumping = true; } }
+function doJump() { if (!jumping) { vy = armorSet.shoes ? 8.6 : 6.4; jumping = true; sfx.jump(); } }
 function toggleMode() { mode = mode === 'fight' ? 'build' : 'fight'; setHint(); }
 function actPrimary() { if (mode === 'fight') swingSword(); else editBlock(new THREE.Vector2(0, 0), false); }
 function actPlace() { if (mode === 'build') editBlock(new THREE.Vector2(0, 0), true); }
@@ -559,7 +605,7 @@ canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 let swing = 0;
 function swingSword() {
-  swing = 1;
+  swing = 1; sfx.swing();
   const f = facing();
   const reach = armorSet.sword ? 3.7 : 2.6, hit = armorSet.sword ? 2 : 1;
   enemies.slice().forEach(en => {
@@ -569,11 +615,11 @@ function swingSword() {
       if (en.userData.hp <= 0) {
         burst(en.position.clone(), en.userData.boss ? [0xf4d03f, 0xffffff, 0x8fe6ff, 0xbdf0a0] : undefined);
         scene.remove(en); enemies.splice(enemies.indexOf(en), 1);
-        if (en.userData.boss) { bossAlive = false; bossDefeated = true; faith = 100; showMsg('The Great Shadow is vanquished! "The light shines in the darkness." (Jn 1:5)'); }
-        else banished++;
+        if (en.userData.boss) { bossAlive = false; bossDefeated = true; faith = 100; showMsg('The Great Shadow is vanquished! "The light shines in the darkness." (Jn 1:5)'); sfx.quest(); }
+        else { banished++; sfx.banish(); }
         updHUD(); markDirty();
       }
-      else burst(en.position.clone(), [0x8fe6ff, 0xffffff]);
+      else { burst(en.position.clone(), [0x8fe6ff, 0xffffff]); sfx.hit(); }
     }
   });
 }
@@ -653,6 +699,7 @@ const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(0.05, clock.getDelta()), t = clock.elapsedTime;
   updateDayNight(t);
+  if (!started) { controls.update(); renderer.render(scene, camera); requestAnimationFrame(frame); return; }
   // movement (camera-relative, with wall collision via step height)
   const fwd = facing(), right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
   const mv = new THREE.Vector3();
@@ -679,7 +726,7 @@ function frame() {
     if (Math.hypot(heroX - p.userData.x, heroZ - p.userData.z) < 1.5) {
       p.userData.taken = true; armorSet[p.userData.id] = true; armor++; updHUD();
       showMsg(p.userData.name + ' — ' + p.userData.power + '!'); burst(new THREE.Vector3(heroX, hero.position.y + 1, heroZ));
-      p.userData.attach(p); markDirty();
+      p.userData.attach(p); markDirty(); sfx.pickup();
       if (armor >= ARMOR_TOTAL) setTimeout(() => showMsg('The full Armor of God! "Be strong in the Lord." (Eph 6:10)'), 2300);
     }
   });
@@ -706,7 +753,7 @@ function frame() {
       en.userData.lastHit = t;
       let dmg = en.userData.dmg || 9; if (armorSet.breastplate) dmg *= 0.5;
       if (armorSet.shield && Math.random() < 0.4) { dmg = 0; showMsg('Faith blocks the blow!'); }
-      faith = Math.max(0, faith - dmg); updHUD(); burst(en.position.clone(), [0xb08bd0]);
+      faith = Math.max(0, faith - dmg); updHUD(); burst(en.position.clone(), [0xb08bd0]); if (dmg > 0) sfx.hurt();
     }
     en.position.set(en.userData.x, surfaceY(en.userData.x, en.userData.z) + en.userData.yoff + Math.sin(t * 3 + en.userData.x) * 0.12, en.userData.z);
     en.rotation.y = Math.atan2(dx, dz);
@@ -737,11 +784,19 @@ function frame() {
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); });
 updHUD(); setHint();
 if (!doLoad()) doSave();   // restore a saved world, or persist the fresh one on first run
-ensureName();
+showName();
+{ const ni = document.getElementById('nameInput'); if (ni) ni.value = slotNames[slot] || ''; }
+function beginGame() {
+  const nm = (document.getElementById('nameInput').value || '').trim();
+  slotNames[slot] = nm || ('Hero ' + slot); persistNames(); showName();
+  initAudio(); started = true;
+  document.getElementById('start').style.display = 'none';
+}
+document.getElementById('startBtn').addEventListener('click', beginGame);
+document.getElementById('nameInput').addEventListener('keydown', e => { if (e.code === 'Enter') beginGame(); });
 controls.target.set(heroX, hero.position.y + 1.4, heroZ);
 renderer.render(scene, camera);
 requestAnimationFrame(frame);
-window.__lumen = { scene, camera, hero, renderer, controls, enemies, world, pickups, armorSet, saints, spawnEnemy, spawnBoss, get faith() { return faith; }, get armor() { return armor; }, get banished() { return banished; }, get mode() { return mode; }, get bossAlive() { return bossAlive; }, get bossDefeated() { return bossDefeated; }, get slot() { return slot; }, villagers, get villagersSafe() { return villagersSafe; }, get isNight() { return isNight; }, updateDayNight, heroPos: () => [heroX, heroZ] };
 </script>
 </body>
 </html>
