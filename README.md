@@ -18,6 +18,17 @@ Sword of the Spirit while collecting the **Armor of God** (Ephesians 6).
   **place**
 - **E** talks to the **saints** (Michael, Joseph, Thérèse), who give quests.
 - Walk into a glowing **Armor of God** piece to equip it.
+- **On phones/tablets:** use the on-screen **d-pad** (left) and buttons (right):
+  act (⚔ swing / ⛏ break), **+** place, **JMP**, **⇄** mode, **✦** talk.
+
+## The Great Shadow (boss)
+Banish enough lesser shadows and a **Great Shadow** rises — bigger, tougher, and
+it hits harder. Stand firm and strike it down (the full Armor makes it far
+easier). Vanquish it and the light wins the day. (Jn 1:5)
+
+## Save slots
+Three independent **slots** (top-right: 1 / 2 / 3) — each keeps its own saved
+world, so different people (or different builds) don't overwrite each other.
 
 ## The Armor of God (find all six)
 Each piece grants a power:
