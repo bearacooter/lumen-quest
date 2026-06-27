@@ -28,6 +28,12 @@ Each piece grants a power:
 - **Helmet of Salvation** — your Faith slowly returns
 - **Sword of the Spirit** — your blade strikes farther, and banishes in one stroke
 
+## Saving
+Your **builds**, collected **armor**, **quest** progress, faith, and position are
+saved to the browser automatically (a few seconds after any change, and on exit;
+press **O** to save now — a "Saved ✓" flashes). Reload and you pick up right where
+you left off. Use **↺ new world** (bottom-right) to wipe the save and start fresh.
+
 ## The world
 - A voxel landscape — grass, trees, a pond — under real sun-shadows.
 - The **Shrine of St. Stanislaus** (Cleveland): a Gothic-Revival church built
