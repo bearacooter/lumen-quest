@@ -8,6 +8,16 @@
 <meta name="theme-color" content="#1d1e3a">
 <meta name="description" content="A 3D voxel quest: explore, build, and put on the Armor of God. Gentle, heroic, Catholic.">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<script>
+  // turn any silent failure into a visible message (so it never just "freezes")
+  window.addEventListener('error', function (e) { showErr((e.message || 'error') + '  [' + (e.filename || '').split('/').pop() + ':' + (e.lineno || '') + ']'); });
+  window.addEventListener('unhandledrejection', function (e) { showErr('promise: ' + ((e.reason && e.reason.message) || e.reason)); });
+  function showErr(msg) {
+    var d = document.getElementById('err');
+    if (!d) { d = document.createElement('div'); d.id = 'err'; d.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99;background:rgba(58,13,20,.95);color:#ffe;padding:10px 12px;font:9px/1.6 monospace;'; document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(d); }); if (document.body) document.body.appendChild(d); }
+    d.textContent = '⚠ ' + msg + '  — please tell the developer this message.';
+  }
+</script>
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#0a0b16;font-family:'Press Start 2P',monospace;}
   #c{display:block;width:100vw;height:100vh;touch-action:none;}
@@ -107,14 +117,9 @@
     </div>
   </div>
 
-<script type="importmap">
-{ "imports": {
-  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-}}
-</script>
-<script type="module">
-import * as THREE from 'three';
+<script src="https://unpkg.com/three@0.149.0/build/three.min.js"></script>
+<script>
+if (!window.THREE) { var d = document.getElementById('start'); if (d) d.innerHTML = '<div class="startcard"><h1>LUMEN</h1><p class="sub">could not load 3D library</p><p class="tip">Please check your internet connection and reload.</p></div>'; }
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('c');
