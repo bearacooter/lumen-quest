@@ -30,6 +30,8 @@
     background:rgba(20,21,43,.86);border:2px solid #dcc97a;border-radius:8px;padding:8px 10px;opacity:0;transition:opacity .3s;}
   #saintbox b{color:#f4d03f;font-size:9px;display:block;margin-bottom:6px;}
   #saintText{color:#eef1f5;font-size:8px;line-height:1.8;}
+  #saved{top:70px;right:12px;font-size:8px;color:#bdf0a0;opacity:0;transition:opacity .3s;}
+  #newworld{position:fixed;bottom:10px;right:10px;font-family:inherit;font-size:7px;color:#c9d0ff;background:rgba(20,21,43,.75);border:1px solid #4a4d8c;border-radius:5px;padding:5px 7px;cursor:pointer;z-index:9;}
   #cross{position:fixed;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;pointer-events:none;opacity:.5;}
   #cross::before,#cross::after{content:'';position:absolute;background:#fff;}
   #cross::before{left:4px;top:0;width:2px;height:10px;}
@@ -49,6 +51,8 @@
   <div class="ui" id="msg"></div>
   <div class="ui" id="hotbar"></div>
   <div class="ui" id="saintbox"><b id="saintName"></b><div id="saintText"></div></div>
+  <div class="ui" id="saved">Saved &#10003;</div>
+  <button id="newworld">&#8634; new world</button>
   <div class="ui" id="hint"></div>
 
 <script type="importmap">
@@ -351,7 +355,7 @@ function talkSaint() {
   const q = best.userData.quest;
   let txt;
   if (!q.accepted) { q.accepted = true; q.baseline = q.type === 'banish' ? banished : q.type === 'place' ? placedCount : 0; txt = best.userData.lines[0] + '  ❖ Quest: ' + q.desc; }
-  else if (!q.done) { const p = Math.max(0, progressOf(q)); if (p >= q.target) { q.done = true; faith = Math.min(100, faith + 40); updHUD(); best.userData.mark.visible = false; txt = 'Well done! ' + q.reward; } else txt = q.desc + '  (' + p + ' / ' + q.target + ')'; }
+  else if (!q.done) { const p = Math.max(0, progressOf(q)); if (p >= q.target) { q.done = true; faith = Math.min(100, faith + 40); updHUD(); best.userData.mark.visible = false; txt = 'Well done! ' + q.reward; markDirty(); } else txt = q.desc + '  (' + p + ' / ' + q.target + ')'; }
   else txt = best.userData.lines[1] || 'Go in peace.';
   showSaint(best.userData.name, txt);
 }
@@ -448,7 +452,7 @@ function swingSword() {
     const dx = en.userData.x - heroX, dz = en.userData.z - heroZ, d = Math.hypot(dx, dz);
     if (d < reach && (dx * f.x + dz * f.z) > -0.3) {
       en.userData.hp -= hit;
-      if (en.userData.hp <= 0) { burst(en.position.clone()); scene.remove(en); enemies.splice(enemies.indexOf(en), 1); banished++; updHUD(); }
+      if (en.userData.hp <= 0) { burst(en.position.clone()); scene.remove(en); enemies.splice(enemies.indexOf(en), 1); banished++; updHUD(); markDirty(); }
       else burst(en.position.clone(), [0x8fe6ff, 0xffffff]);
     }
   });
@@ -468,10 +472,45 @@ function editBlock(ndc, place) {
     } else {
       removeBlock(bp[0], bp[1], bp[2]);
     }
-    remesh(); return;
+    markDirty(); remesh(); return;
   }
 }
 function facing() { const f = new THREE.Vector3(); camera.getWorldDirection(f); f.y = 0; f.normalize(); return f; }
+
+// ---------- save / load (localStorage) ----------
+const SAVE_KEY = 'lumen_save_v1';
+const TYPE_LIST = Object.keys(T), TYPE_IDX = {}; TYPE_LIST.forEach((k, i) => TYPE_IDX[k] = i);
+let dirty = false, saveTimer = 0;
+function markDirty() { dirty = true; }
+const savedEl = document.getElementById('saved');
+let savedTO = 0;
+function flashSaved() { savedEl.style.opacity = 1; clearTimeout(savedTO); savedTO = setTimeout(() => savedEl.style.opacity = 0, 1200); }
+function doSave() {
+  try {
+    const w = new Array(world.size * 4); let i = 0;
+    for (const [k, type] of world) { const c = k.split(','); w[i++] = +c[0]; w[i++] = +c[1]; w[i++] = +c[2]; w[i++] = TYPE_IDX[type]; }
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      v: 1, w, hero: [heroX, heroZ], armor: armorSet, armorN: armor, faith, banished, placed: placedCount,
+      quests: saints.map(s => ({ a: s.userData.quest.accepted, d: s.userData.quest.done, b: s.userData.quest.baseline })),
+    }));
+    dirty = false; flashSaved();
+  } catch (e) { /* storage unavailable (private mode / quota) */ }
+}
+function doLoad() {
+  let d; try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { }
+  if (!d || !d.w) return false;
+  world.clear(); colTop.clear();
+  for (let i = 0; i < d.w.length; i += 4) setBlock(d.w[i], d.w[i + 1], d.w[i + 2], TYPE_LIST[d.w[i + 3]]);
+  remesh();
+  heroX = d.hero[0]; heroZ = d.hero[1]; faith = d.faith; banished = d.banished || 0; placedCount = d.placed || 0;
+  Object.assign(armorSet, d.armor || {}); armor = d.armorN || 0;
+  pickups.forEach(p => { if (armorSet[p.userData.id]) { p.userData.taken = true; p.userData.attach(p); } });
+  (d.quests || []).forEach((q, i) => { const s = saints[i]; if (!s) return; const qq = s.userData.quest; qq.accepted = q.a; qq.done = q.d; qq.baseline = q.b; if (q.d) s.userData.mark.visible = false; });
+  updHUD(); return true;
+}
+addEventListener('keydown', e => { if (e.code === 'KeyO') doSave(); });
+addEventListener('beforeunload', () => { try { doSave(); } catch (e) { } });
+document.getElementById('newworld').addEventListener('click', () => { try { localStorage.removeItem(SAVE_KEY); } catch (e) { } location.reload(); });
 
 // ---------- loop ----------
 let vy = 0, jumping = false;
@@ -503,7 +542,7 @@ function frame() {
     if (Math.hypot(heroX - p.userData.x, heroZ - p.userData.z) < 1.5) {
       p.userData.taken = true; armorSet[p.userData.id] = true; armor++; updHUD();
       showMsg(p.userData.name + ' — ' + p.userData.power + '!'); burst(new THREE.Vector3(heroX, hero.position.y + 1, heroZ));
-      p.userData.attach(p);
+      p.userData.attach(p); markDirty();
       if (armor >= ARMOR_TOTAL) setTimeout(() => showMsg('The full Armor of God! "Be strong in the Lord." (Eph 6:10)'), 2300);
     }
   });
@@ -536,11 +575,13 @@ function frame() {
   saints.forEach(s => { s.userData.mark.rotation.y += dt * 2; s.userData.mark.position.y = 2.45 + Math.sin(t * 2) * 0.1; });
   if (msgT > 0) { msgT -= dt; if (msgT <= 0) msgEl.style.opacity = 0; }
   if (saintT > 0) { saintT -= dt; if (saintT <= 0) saintBox.style.opacity = 0; }
+  saveTimer += dt; if (dirty && saveTimer > 2) { saveTimer = 0; doSave(); }
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); });
 updHUD(); setHint();
+if (!doLoad()) doSave();   // restore a saved world, or persist the fresh one on first run
 controls.target.set(heroX, hero.position.y + 1.4, heroZ);
 renderer.render(scene, camera);
 requestAnimationFrame(frame);
