@@ -16,7 +16,17 @@ Sword of the Spirit while collecting the **Armor of God** (Ephesians 6).
   dissipate into light — no gore). Keep your **Faith** meter up.
 - **BUILD:** number keys **1–7** pick a block · left-click **break** · **Shift+click**
   **place**
+- **E** talks to the **saints** (Michael, Joseph, Thérèse), who give quests.
 - Walk into a glowing **Armor of God** piece to equip it.
+
+## The Armor of God (find all six)
+Each piece grants a power:
+- **Belt of Truth** — quicker, steadier steps
+- **Shoes of the Gospel** — a higher leap
+- **Breastplate of Righteousness** — shadows wound you less
+- **Shield of Faith** — a chance to block all harm
+- **Helmet of Salvation** — your Faith slowly returns
+- **Sword of the Spirit** — your blade strikes farther, and banishes in one stroke
 
 ## The world
 - A voxel landscape — grass, trees, a pond — under real sun-shadows.
