@@ -38,6 +38,21 @@ Shadows come in kinds that escalate as you fight: **wisps** (fast, fragile),
 Third-person **follow camera**: it trails behind you as you walk, and you can
 drag any time to look around (it resumes following after a moment).
 
+## Protect the village
+Animal-free townsfolk live by the huts. Shadows sometimes go after **villagers** —
+if one is reached, they flee in fear (watch the **Village** counter). New
+villagers arrive over time. Banish the shadows before they scatter the village!
+
+## Day & night
+A gentle **day ↔ night** cycle drifts the sky, sun, and fog. It never goes
+pitch-black (safe and pretty), and the holy gold and the light-sword glow more
+under the stars.
+
+## Named heroes & slots
+Each of the **3 save slots** holds its own named hero (you're asked to name your
+hero on a fresh slot; the name shows under the title). Click the **active** slot
+to rename. Great for different kids — each gets their own world and hero.
+
 ## The Armor of God (find all six)
 Three are **found in the world** (Belt, Shoes, Shield) and three are **earned from
 the saints' quests** (Sword, Breastplate, Helmet). Each piece grants a power:
