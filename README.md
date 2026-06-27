@@ -30,8 +30,17 @@ easier). Vanquish it and the light wins the day. (Jn 1:5)
 Three independent **slots** (top-right: 1 / 2 / 3) — each keeps its own saved
 world, so different people (or different builds) don't overwrite each other.
 
+## Enemies
+Shadows come in kinds that escalate as you fight: **wisps** (fast, fragile),
+**shadows** (steady), and **brutes** (slow, tough) — plus the **Great Shadow** boss.
+
+## Camera
+Third-person **follow camera**: it trails behind you as you walk, and you can
+drag any time to look around (it resumes following after a moment).
+
 ## The Armor of God (find all six)
-Each piece grants a power:
+Three are **found in the world** (Belt, Shoes, Shield) and three are **earned from
+the saints' quests** (Sword, Breastplate, Helmet). Each piece grants a power:
 - **Belt of Truth** — quicker, steadier steps
 - **Shoes of the Gospel** — a higher leap
 - **Breastplate of Righteousness** — shadows wound you less
