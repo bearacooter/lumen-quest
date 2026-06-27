@@ -18,7 +18,8 @@
   .bar{display:inline-block;width:96px;height:9px;background:rgba(20,21,43,.8);border:1px solid #dcc97a;border-radius:5px;vertical-align:middle;overflow:hidden;}
   .bar>i{display:block;height:100%;}
   #faithFill{background:#bdf0a0;width:100%;}
-  #mode{top:42px;left:12px;font-size:8px;}
+  #heroName{top:44px;left:14px;font-size:8px;color:#bdf0a0;}
+  #mode{top:60px;left:12px;font-size:8px;}
   #mode b{color:#8fe6ff;}
   #hint{bottom:10px;left:0;right:0;text-align:center;font-size:7px;color:#c9d0ff;line-height:1.9;}
   #msg{left:0;right:0;top:40%;text-align:center;font-size:12px;color:#ffe98a;opacity:0;transition:opacity .35s;}
@@ -54,10 +55,12 @@
 <body>
   <canvas id="c"></canvas>
   <div class="ui" id="title">LUMEN<small>armor of god</small></div>
+  <div class="ui" id="heroName"></div>
   <div class="ui" id="stats">
     <div>FAITH <span class="bar"><i id="faithFill"></i></span></div>
     <div id="armorTxt" class="badge">Armor 0/2</div>
     <div id="foeTxt" class="badge">Shadows banished: 0</div>
+    <div id="villageTxt" class="badge">Village: 5</div>
   </div>
   <div class="ui" id="mode">Mode: <b id="modeTxt">FIGHT</b> &nbsp;(press <b>Tab</b>)</div>
   <div class="ui" id="cross"></div>
@@ -114,15 +117,30 @@ let dragging = false, lastDragMs = -9999, heroMoving = false;
 controls.addEventListener('start', () => { dragging = true; });
 controls.addEventListener('end', () => { dragging = false; lastDragMs = performance.now(); });
 
-scene.add(new THREE.HemisphereLight(0xdcefff, 0x4f6a3c, 0.9));
+const hemi = new THREE.HemisphereLight(0xdcefff, 0x4f6a3c, 0.9); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff6df, 1.15);
 sun.position.set(20, 30, 14); sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 const S = 40; Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 1, far: 90 });
 scene.add(sun);
 
+// gentle day <-> night cycle (never pitch-black; safe & pretty)
+const SKY_DAY = new THREE.Color(0xaad7f0), SKY_NIGHT = new THREE.Color(0x121b40), DAY_LEN = 120;
+let isNight = false;
+function updateDayNight(t) {
+  const phase = (Math.sin((t / DAY_LEN) * Math.PI * 2 + Math.PI / 2) + 1) / 2; // 1=day, 0=night, starts at day
+  isNight = phase < 0.4;
+  scene.background.copy(SKY_DAY).lerp(SKY_NIGHT, 1 - phase);
+  scene.fog.color.copy(scene.background);
+  sun.intensity = 0.28 + phase * 0.95;
+  hemi.intensity = 0.34 + phase * 0.6;
+  const a = (t / DAY_LEN) * Math.PI * 2;
+  sun.position.set(Math.cos(a) * 24, Math.max(5, Math.sin(a) * 30 + 8), 14);
+}
+
 // core run-state (declared early so spawners/quests can read it safely)
 let faith = 100, armor = 0, banished = 0;
+const villagers = []; let villagersSafe = 0;
 
 // ---------- block types (NO ORANGE) ----------
 const T = {
@@ -433,7 +451,8 @@ function spawnEnemy(typeName) {
   g.add(part(es, es, 0.1, tp.eye, -ex, ey, ez, { e: tp.eyeE, ei: 1.6 }));
   g.add(part(es, es, 0.1, tp.eye, ex, ey, ez, { e: tp.eyeE, ei: 1.6 }));
   g.position.set(x, surfaceY(x, z) + tp.yoff, z);
-  g.userData = { hp: tp.hp, x, z, lastHit: 0, yoff: tp.yoff, speed: tp.speed, dmg: tp.dmg };
+  g.userData = { hp: tp.hp, x, z, lastHit: 0, yoff: tp.yoff, speed: tp.speed, dmg: tp.dmg,
+    target: (villagers.length && Math.random() < 0.33) ? villagers[Math.floor(Math.random() * villagers.length)] : null };
   scene.add(g); enemies.push(g);
 }
 for (let i = 0; i < 4; i++) spawnEnemy();
@@ -455,6 +474,23 @@ function spawnBoss() {
   showMsg('A GREAT SHADOW rises! Stand firm in the Lord.');
 }
 
+// ---------- villagers to protect ----------
+const VILLAGE_MAX = 5, VILLAGE_SPOTS = [[16, 8], [21, 13], [15, 16], [18, 11], [13, 12], [20, 9]];
+const VTUNIC = [0x6c7a9c, 0x8a5e38, 0x3f7a4a, 0x6f5aa0, 0x9c4444]; // no orange
+let villagerTimer = 0;
+function spawnVillager() {
+  const s = VILLAGE_SPOTS[Math.floor(Math.random() * VILLAGE_SPOTS.length)];
+  const x = s[0] + Math.round((Math.random() * 2 - 1) * 2), z = s[1] + Math.round((Math.random() * 2 - 1) * 2);
+  const g = new THREE.Group();
+  g.add(part(0.6, 1.0, 0.4, VTUNIC[villagers.length % VTUNIC.length], 0, 0.5, 0, {}));
+  g.add(part(0.46, 0.44, 0.46, 0xe8d9c0, 0, 1.2, 0, {}));
+  g.add(part(0.56, 0.14, 0.56, 0x6e4a28, 0, 1.46, 0, {}));
+  g.add(part(0.1, 0.1, 0.1, 0x1c1c1c, -0.1, 1.2, 0.24)); g.add(part(0.1, 0.1, 0.1, 0x1c1c1c, 0.1, 1.2, 0.24));
+  g.position.set(x, surfaceY(x, z), z); g.userData = { x, z, t: Math.random() * 6 };
+  scene.add(g); villagers.push(g); villagersSafe++;
+}
+for (let i = 0; i < VILLAGE_MAX; i++) spawnVillager();
+
 // ---------- particles ----------
 const sparks = [];
 function burst(pos, cols = [0x8fe6ff, 0xf4d03f, 0xffffff, 0xbdf0a0]) {
@@ -473,6 +509,7 @@ function updHUD() {
   faithFill.style.width = Math.max(0, faith) + '%';
   faithFill.style.background = faith > 40 ? '#bdf0a0' : '#ffd27a';
   document.getElementById('armorTxt').textContent = 'Armor ' + armor + '/' + ARMOR_TOTAL;
+  const vt = document.getElementById('villageTxt'); if (vt) vt.textContent = 'Village: ' + villagersSafe;
   document.getElementById('foeTxt').textContent = 'Shadows banished: ' + banished;
 }
 const BUILD_TYPES = ['grass', 'stone', 'plank', 'brick', 'white', 'glassB', 'gold'];
@@ -563,6 +600,11 @@ function facing() { const f = new THREE.Vector3(); camera.getWorldDirection(f); 
 // ---------- save / load (localStorage, with 3 slots) ----------
 let slot = 1; try { slot = +(localStorage.getItem('lumen_slot')) || 1; } catch (e) { }
 function SAVE_KEY() { return 'lumen_save_v1_s' + slot; }
+let slotNames = {}; try { slotNames = JSON.parse(localStorage.getItem('lumen_names') || '{}'); } catch (e) { }
+function persistNames() { try { localStorage.setItem('lumen_names', JSON.stringify(slotNames)); } catch (e) { } }
+function showName() { const el = document.getElementById('heroName'); if (el) el.textContent = '⚔ ' + (slotNames[slot] || ('Hero ' + slot)); }
+function ensureName() { if (!slotNames[slot]) { const n = (window.prompt('Name your hero:') || '').trim(); slotNames[slot] = n || ('Hero ' + slot); persistNames(); } showName(); }
+function renameHero() { const n = (window.prompt('Name your hero:', slotNames[slot] || '') || '').trim(); if (n) { slotNames[slot] = n; persistNames(); showName(); } }
 const TYPE_LIST = Object.keys(T), TYPE_IDX = {}; TYPE_LIST.forEach((k, i) => TYPE_IDX[k] = i);
 let dirty = false, saveTimer = 0;
 function markDirty() { dirty = true; }
@@ -596,7 +638,7 @@ addEventListener('keydown', e => { if (e.code === 'KeyO') doSave(); });
 addEventListener('beforeunload', () => { try { doSave(); } catch (e) { } });
 document.getElementById('newworld').addEventListener('click', () => { try { localStorage.removeItem(SAVE_KEY()); } catch (e) { } location.reload(); });
 function setSlot(n) { try { doSave(); localStorage.setItem('lumen_slot', n); } catch (e) { } location.reload(); }
-document.querySelectorAll('#slots [data-slot]').forEach(b => b.addEventListener('click', () => setSlot(+b.getAttribute('data-slot'))));
+document.querySelectorAll('#slots [data-slot]').forEach(b => b.addEventListener('click', () => { const n = +b.getAttribute('data-slot'); if (n === slot) renameHero(); else setSlot(n); }));
 document.querySelectorAll('#slots [data-slot]').forEach(b => { if (+b.getAttribute('data-slot') === slot) b.classList.add('on'); });
 
 // on-screen touch controls (also work with a mouse)
@@ -610,6 +652,7 @@ let vy = 0, jumping = false;
 const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(0.05, clock.getDelta()), t = clock.elapsedTime;
+  updateDayNight(t);
   // movement (camera-relative, with wall collision via step height)
   const fwd = facing(), right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
   const mv = new THREE.Vector3();
@@ -645,15 +688,21 @@ function frame() {
   spawnTimer += dt; if (spawnTimer > 5 && enemies.length < 7) { spawnTimer = 0; spawnEnemy(); }
   if (!bossAlive && !bossDefeated && banished >= 6) spawnBoss();
   enemies.forEach(en => {
-    const dx = heroX - en.userData.x, dz = heroZ - en.userData.z, d = Math.hypot(dx, dz) || 1;
+    let tx = heroX, tz = heroZ, vill = null;
+    if (en.userData.target && villagers.indexOf(en.userData.target) !== -1) { vill = en.userData.target; tx = vill.userData.x; tz = vill.userData.z; }
+    else en.userData.target = null;
+    const dx = tx - en.userData.x, dz = tz - en.userData.z, d = Math.hypot(dx, dz) || 1;
     if (d > 1.25) {
       const cur = surfaceY(en.userData.x, en.userData.z);
       const sp = en.userData.speed || 1.7;
       const nx = en.userData.x + (dx / d) * sp * dt, nz = en.userData.z + (dz / d) * sp * dt;
       if (surfaceY(nx, en.userData.z) - cur <= 1.1) en.userData.x = nx;
       if (surfaceY(en.userData.x, nz) - cur <= 1.1) en.userData.z = nz;
-    }
-    else if (t - en.userData.lastHit > 1.1) {
+    } else if (vill) {
+      scene.remove(vill); villagers.splice(villagers.indexOf(vill), 1); villagersSafe = Math.max(0, villagersSafe - 1);
+      burst(vill.position.clone(), [0x231a40, 0xb08bd0]); showMsg('A villager fled in fear — defend them!'); updHUD();
+      en.userData.target = null;
+    } else if (t - en.userData.lastHit > 1.1) {
       en.userData.lastHit = t;
       let dmg = en.userData.dmg || 9; if (armorSet.breastplate) dmg *= 0.5;
       if (armorSet.shield && Math.random() < 0.4) { dmg = 0; showMsg('Faith blocks the blow!'); }
@@ -662,6 +711,8 @@ function frame() {
     en.position.set(en.userData.x, surfaceY(en.userData.x, en.userData.z) + en.userData.yoff + Math.sin(t * 3 + en.userData.x) * 0.12, en.userData.z);
     en.rotation.y = Math.atan2(dx, dz);
   });
+  villagers.forEach(v => { v.position.y = surfaceY(v.userData.x, v.userData.z) + Math.sin(t * 2 + v.userData.t) * 0.05; });
+  villagerTimer += dt; if (villagerTimer > 16 && villagersSafe < VILLAGE_MAX) { villagerTimer = 0; spawnVillager(); }
   if (faith <= 0) {
     faith = 100; heroX = 0; heroZ = 4; showMsg('Take heart — rise and stand again!');
     let removed = 0; for (let i = enemies.length - 1; i >= 0 && removed < 2; i--) { if (!enemies[i].userData.boss) { scene.remove(enemies[i]); enemies.splice(i, 1); removed++; } }
@@ -686,10 +737,11 @@ function frame() {
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); });
 updHUD(); setHint();
 if (!doLoad()) doSave();   // restore a saved world, or persist the fresh one on first run
+ensureName();
 controls.target.set(heroX, hero.position.y + 1.4, heroZ);
 renderer.render(scene, camera);
 requestAnimationFrame(frame);
-window.__lumen = { scene, camera, hero, renderer, controls, enemies, world, pickups, armorSet, saints, spawnEnemy, spawnBoss, get faith() { return faith; }, get armor() { return armor; }, get banished() { return banished; }, get mode() { return mode; }, get bossAlive() { return bossAlive; }, get bossDefeated() { return bossDefeated; }, get slot() { return slot; }, heroPos: () => [heroX, heroZ] };
+window.__lumen = { scene, camera, hero, renderer, controls, enemies, world, pickups, armorSet, saints, spawnEnemy, spawnBoss, get faith() { return faith; }, get armor() { return armor; }, get banished() { return banished; }, get mode() { return mode; }, get bossAlive() { return bossAlive; }, get bossDefeated() { return bossDefeated; }, get slot() { return slot; }, villagers, get villagersSafe() { return villagersSafe; }, get isNight() { return isNight; }, updateDayNight, heroPos: () => [heroX, heroZ] };
 </script>
 </body>
 </html>
