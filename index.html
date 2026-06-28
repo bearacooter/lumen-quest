@@ -402,12 +402,21 @@ function part(w, h, d, color, x, y, z, opts = {}) {
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.8, emissive: opts.e || 0, emissiveIntensity: opts.ei || 0 });
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.castShadow = true; return m;
 }
-const hero = new THREE.Group();
+// articulated limb: a joint pivot (hip/shoulder) with an upper segment and a nested lower
+// segment that bends at a knee/elbow, capped by a boot/hand. swing g.rotation.x for the
+// stride, g.userData.lo.rotation.x for the bend. taper + bend = reads as a body, not a block.
+function limb(w, up, lo, color, x, y, capW, capH, capCol) {
+  const g = new THREE.Group(); g.position.set(x, y, 0);
+  g.add(part(w, up, w, color, 0, -up / 2, 0));
+  const k = new THREE.Group(); k.position.set(0, -up, 0);
+  k.add(part(w * 0.88, lo, w * 0.88, color, 0, -lo / 2, 0));
+  if (capW) k.add(part(capW, capH, capW * 1.3, capCol, 0, -lo - capH / 2 + 0.02, 0.04));
+  g.add(k); g.userData.lo = k; return g;
+}
+const hero = new THREE.Group(); hero.rotation.order = 'YXZ'; // yaw-then-lean, so the forward lean stays forward
 // legs as pivoting groups (hip at y0.7) so they can stride
 function makeLeg(side) {
-  const g = new THREE.Group(); g.position.set(side * 0.18, 0.7, 0);
-  g.add(part(0.3, 0.7, 0.3, 0x33356a, 0, -0.35, 0));         // leg
-  g.add(part(0.34, 0.18, 0.4, 0x6e4a28, 0, -0.72, 0.05));    // boot
+  const g = limb(0.3, 0.4, 0.34, 0x33356a, side * 0.18, 0.7, 0.34, 0.18, 0x6e4a28); // thigh+shin+boot, bends at knee
   hero.add(g); return g;
 }
 const lLeg = makeLeg(-1), rLeg = makeLeg(1);
@@ -418,7 +427,7 @@ hero.add(part(0.5, 0.5, 0.5, 0xcdbfa0, 0, 1.9, 0));          // head
 hero.add(part(0.58, 0.3, 0.54, 0xb9bcc4, 0, 2.12, 0));       // helmet
 hero.add(part(0.18, 0.1, 0.06, 0xb9bcc4, 0, 1.86, 0.27));    // nose guard
 hero.add(part(0.1, 0.12, 0.06, 0x1c1c1c, -0.13, 1.9, 0.26)); hero.add(part(0.1, 0.12, 0.06, 0x1c1c1c, 0.13, 1.9, 0.26));
-const lArm = new THREE.Group(); lArm.position.set(-0.5, 1.5, 0); lArm.add(part(0.24, 0.72, 0.24, 0x4f9a3c, 0, -0.36, 0)); lArm.add(part(0.26, 0.18, 0.26, 0xcdbfa0, 0, -0.74, 0)); hero.add(lArm);
+const lArm = limb(0.24, 0.42, 0.32, 0x4f9a3c, -0.5, 1.5, 0.26, 0.18, 0xcdbfa0); hero.add(lArm); // upper+forearm+hand, bends at elbow
 const rArm = new THREE.Group(); rArm.position.set(0.49, 1.45, 0); rArm.add(part(0.24, 0.7, 0.24, 0x4f9a3c, 0, -0.35, 0));
 const sword = new THREE.Group(); sword.position.set(0, -0.55, 0.15);
 sword.add(part(0.1, 0.32, 0.1, 0x6e4a28, 0, 0, 0));
@@ -569,13 +578,18 @@ let villagerTimer = 0;
 function spawnVillager() {
   const s = VILLAGE_SPOTS[Math.floor(Math.random() * VILLAGE_SPOTS.length)];
   const x = s[0] + Math.round((Math.random() * 2 - 1) * 2), z = s[1] + Math.round((Math.random() * 2 - 1) * 2);
-  const g = new THREE.Group(); const tc = VTUNIC[villagers.length % VTUNIC.length];
-  g.add(part(0.6, 1.0, 0.4, tc, 0, 0.5, 0, {}));
-  g.add(part(0.16, 0.62, 0.16, tc, -0.4, 0.62, 0, {})); g.add(part(0.16, 0.62, 0.16, tc, 0.4, 0.62, 0, {})); // arms
-  g.add(part(0.46, 0.44, 0.46, 0xe8d9c0, 0, 1.2, 0, {}));
-  g.add(part(0.56, 0.14, 0.56, 0x6e4a28, 0, 1.46, 0, {}));
-  g.add(part(0.1, 0.1, 0.1, 0x1c1c1c, -0.1, 1.2, 0.24)); g.add(part(0.1, 0.1, 0.1, 0x1c1c1c, 0.1, 1.2, 0.24));
-  g.position.set(x, surfaceY(x, z), z); g.userData = { x, z, t: Math.random() * 6 };
+  const g = new THREE.Group(); g.rotation.order = 'YXZ'; const tc = VTUNIC[villagers.length % VTUNIC.length], skin = 0xe8d9c0;
+  const ll = limb(0.18, 0.36, 0.34, 0x4a4a55, -0.15, 0.9, 0.24, 0.13, 0x6e4a28);
+  const rl = limb(0.18, 0.36, 0.34, 0x4a4a55, 0.15, 0.9, 0.24, 0.13, 0x6e4a28); g.add(ll, rl);
+  g.add(part(0.4, 0.34, 0.3, tc, 0, 1.0, 0, {}));            // waist (narrower — tapered torso)
+  g.add(part(0.52, 0.48, 0.34, tc, 0, 1.42, 0, {}));         // chest
+  const la = limb(0.15, 0.34, 0.3, tc, -0.34, 1.62, 0.15, 0.14, skin);
+  const ra = limb(0.15, 0.34, 0.3, tc, 0.34, 1.62, 0.15, 0.14, skin); g.add(la, ra);
+  g.add(part(0.42, 0.42, 0.42, skin, 0, 1.9, 0, {}));        // head
+  g.add(part(0.56, 0.1, 0.56, 0x6e4a28, 0, 2.16, 0, {})); g.add(part(0.34, 0.18, 0.34, 0x6e4a28, 0, 2.27, 0, {})); // brim + crown hat
+  g.add(part(0.1, 0.1, 0.1, 0x1c1c1c, -0.1, 1.9, 0.23)); g.add(part(0.1, 0.1, 0.1, 0x1c1c1c, 0.1, 1.9, 0.23)); // eyes
+  g.position.set(x, surfaceY(x, z), z);
+  g.userData = { x, z, hx: x, hz: z, wx: x, wz: z, pause: Math.random() * 3, t: Math.random() * 6, walk: 0, legs: [ll, rl], arms: [la, ra] };
   scene.add(g); villagers.push(g); villagersSafe++;
 }
 for (let i = 0; i < VILLAGE_MAX; i++) spawnVillager();
@@ -795,6 +809,9 @@ function frame() {
   walkPhase += heroMoving ? dt * 9 : 0;
   const sw = heroMoving ? Math.sin(walkPhase) * 0.5 : Math.sin(t * 2) * 0.05;
   lLeg.rotation.x = sw; rLeg.rotation.x = -sw; lArm.rotation.x = -sw * 0.7;
+  lLeg.userData.lo.rotation.x = Math.max(0, sw) * 1.1; rLeg.userData.lo.rotation.x = Math.max(0, -sw) * 1.1; // knees bend on the lift
+  lArm.userData.lo.rotation.x = 0.2;                 // relaxed elbow so the arm isn't a stick
+  hero.rotation.x = heroMoving ? 0.05 : 0;           // slight forward lean into the stride
   if (swing > 0) { swing = Math.max(0, swing - dt * 3); rArm.rotation.x = -Math.sin(swing * Math.PI) * 2.3; }
   else rArm.rotation.x = sw * 0.7;
   // pickups
@@ -837,7 +854,30 @@ function frame() {
     en.rotation.y = Math.atan2(dx, dz);
     if (en.userData.la) { const a = Math.sin(t * 5 + en.userData.ph) * 0.6; en.userData.la.rotation.x = a; en.userData.ra.rotation.x = -a; } // clawing arms
   });
-  villagers.forEach(v => { v.position.y = surfaceY(v.userData.x, v.userData.z) + Math.sin(t * 2 + v.userData.t) * 0.05; v.rotation.z = Math.sin(t * 1.4 + v.userData.t) * 0.05; v.rotation.y = Math.atan2(heroX - v.userData.x, heroZ - v.userData.z); });
+  villagers.forEach(v => {
+    const u = v.userData, dx = u.wx - u.x, dz = u.wz - u.z, d = Math.hypot(dx, dz);
+    let moving = false;
+    if (d > 0.4) {                                   // stroll toward a wander target, stepping over small rises
+      const cur = surfaceY(u.x, u.z), sp = 1.3 * dt;
+      const nx = u.x + dx / d * sp, nz = u.z + dz / d * sp;
+      if (surfaceY(nx, u.z) - cur <= 1.1) u.x = nx;
+      if (surfaceY(u.x, nz) - cur <= 1.1) u.z = nz;
+      v.rotation.y = Math.atan2(dx, dz); moving = true;
+    } else {                                         // arrived: pause, then pick a fresh spot near home
+      v.rotation.y = Math.atan2(heroX - u.x, heroZ - u.z); // idle villagers look toward the hero
+      u.pause -= dt;
+      if (u.pause <= 0) { const a = Math.random() * 6.283, r = 1.5 + Math.random() * 3; u.wx = u.hx + Math.cos(a) * r; u.wz = u.hz + Math.sin(a) * r; u.pause = 1.5 + Math.random() * 2.5; }
+    }
+    u.walk += moving ? dt * 7 : 0;
+    const s = moving ? Math.sin(u.walk) * 0.6 : Math.sin(t * 1.4 + u.t) * 0.04; // stride, or gentle idle breathing
+    u.legs[0].rotation.x = s; u.legs[1].rotation.x = -s;
+    u.legs[0].userData.lo.rotation.x = Math.max(0, s) * 1.2; u.legs[1].userData.lo.rotation.x = Math.max(0, -s) * 1.2; // knee lifts the trailing foot
+    u.arms[0].rotation.x = -s * 0.8; u.arms[1].rotation.x = s * 0.8; // arms counter-swing
+    u.arms[0].userData.lo.rotation.x = u.arms[1].userData.lo.rotation.x = 0.25; // relaxed elbow bend (never ramrod-straight)
+    v.rotation.x = moving ? 0.07 : 0;                // slight forward lean while walking
+    v.rotation.z = moving ? 0 : Math.sin(t * 1.4 + u.t) * 0.04;
+    v.position.set(u.x, surfaceY(u.x, u.z) + (moving ? Math.abs(Math.sin(u.walk)) * 0.04 : 0), u.z); // body bobs on each step
+  });
   villagerTimer += dt; if (villagerTimer > 16 && villagersSafe < VILLAGE_MAX) { villagerTimer = 0; spawnVillager(); }
   if (faith <= 0) {
     faith = 100; heroX = 0; heroZ = 4; showMsg('Take heart — rise and stand again!');
