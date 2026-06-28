@@ -32,6 +32,8 @@
   #fps{top:44px;right:14px;font-size:7px;color:#9aa0e0;}
   #mode{top:60px;left:12px;font-size:8px;}
   #mode b{color:#8fe6ff;}
+  #map{position:fixed;top:84px;left:12px;width:116px;height:116px;pointer-events:none;z-index:9;display:none;
+    border:2px solid #dcc97a;border-radius:8px;background:rgba(12,13,28,.72);box-shadow:0 4px 14px rgba(0,0,0,.45);}
   #hint{bottom:10px;left:0;right:0;text-align:center;font-size:7px;color:#c9d0ff;line-height:1.9;}
   #msg{left:0;right:0;top:40%;text-align:center;font-size:12px;color:#ffe98a;opacity:0;transition:opacity .35s;}
   #hotbar{bottom:34px;left:0;right:0;text-align:center;font-size:7px;color:#e9e3cf;}
@@ -86,6 +88,7 @@
     <div id="villageTxt" class="badge">Village: 5</div>
   </div>
   <div class="ui" id="mode">Mode: <b id="modeTxt">FIGHT</b> &nbsp;(press <b>Tab</b>)</div>
+  <canvas id="map" width="116" height="116"></canvas>
   <div class="ui" id="cross"></div>
   <div class="ui" id="msg"></div>
   <div class="ui" id="hotbar"></div>
@@ -635,6 +638,34 @@ function setHint() {
   drawHotbar();
 }
 
+// ---------- minimap (2D radar overlay — pure canvas, no WebGL cost) ----------
+// turns the world into a readable quest board: where's the armor, the saints, the shrine, the threats.
+const mapCv = document.getElementById('map'), mapCtx = mapCv.getContext('2d'), MAP_S = 116;
+function w2m(v) { return (v + R) / (2 * R) * MAP_S; }   // world [-R,R] -> canvas px; north (-z) is up
+function mdot(x, z, r, col, square) {
+  const mx = w2m(x), mz = w2m(z); mapCtx.fillStyle = col;
+  if (square) mapCtx.fillRect(mx - r, mz - r, r * 2, r * 2);
+  else { mapCtx.beginPath(); mapCtx.arc(mx, mz, r, 0, 6.283); mapCtx.fill(); }
+}
+function mring(x, z, col) { mapCtx.strokeStyle = col; mapCtx.lineWidth = 1.5; mapCtx.beginPath(); mapCtx.arc(w2m(x), w2m(z), 6, 0, 6.283); mapCtx.stroke(); }
+let mapT = 0;
+function drawMap() {
+  const g = mapCtx; g.clearRect(0, 0, MAP_S, MAP_S);
+  mdot(0, -13, 6, '#c2502e', true);                                          // shrine (brick block)
+  g.strokeStyle = '#f4d03f'; g.lineWidth = 1.5; const sx = w2m(0), sz = w2m(-13);
+  g.beginPath(); g.moveTo(sx, sz - 4); g.lineTo(sx, sz + 4); g.moveTo(sx - 4, sz); g.lineTo(sx + 4, sz); g.stroke(); // cross atop shrine
+  mdot(POND.x, POND.z, 6, '#3a6ea5');                                        // pond
+  villagers.forEach(v => mdot(v.userData.x, v.userData.z, 3, '#7fd0c0'));    // villagers to protect
+  enemies.forEach(e => mdot(e.userData.x, e.userData.z, 3, '#e85a6a'));      // shadows (threats)
+  saints.forEach(s => { mdot(s.userData.x, s.userData.z, 4, '#ffffff'); mring(s.userData.x, s.userData.z, '#f4d03f'); }); // quest-givers
+  pickups.forEach(p => { if (!p.userData.taken) { mdot(p.userData.x, p.userData.z, 4, '#f4d03f'); mring(p.userData.x, p.userData.z, '#fff7cf'); } }); // armor to find
+  const hx = w2m(heroX), hz = w2m(heroZ), y = hero.rotation.y, fx = Math.sin(y), fz = Math.cos(y), rx = Math.cos(y), rz = -Math.sin(y);
+  g.fillStyle = '#bdf0a0'; g.beginPath();                                    // hero arrow points the way you face
+  g.moveTo(hx + fx * 6, hz + fz * 6); g.lineTo(hx - fx * 3 + rx * 4, hz - fz * 3 + rz * 4); g.lineTo(hx - fx * 3 - rx * 4, hz - fz * 3 - rz * 4);
+  g.closePath(); g.fill();
+  g.fillStyle = '#9aa0e0'; g.font = '8px monospace'; g.textAlign = 'center'; g.fillText('N', MAP_S / 2, 11); // compass
+}
+
 // ---------- input ----------
 const keys = {};
 function doJump() { if (!jumping) { vy = armorSet.shoes ? 8.6 : 6.4; jumping = true; sfx.jump(); } }
@@ -879,6 +910,7 @@ function frame() {
     v.position.set(u.x, surfaceY(u.x, u.z) + (moving ? Math.abs(Math.sin(u.walk)) * 0.04 : 0), u.z); // body bobs on each step
   });
   villagerTimer += dt; if (villagerTimer > 16 && villagersSafe < VILLAGE_MAX) { villagerTimer = 0; spawnVillager(); }
+  mapT += dt; if (mapT > 0.12) { mapT = 0; drawMap(); }   // refresh radar ~8x/sec (cheap)
   if (faith <= 0) {
     faith = 100; heroX = 0; heroZ = 4; showMsg('Take heart — rise and stand again!');
     let removed = 0; for (let i = enemies.length - 1; i >= 0 && removed < 2; i--) { if (!enemies[i].userData.boss) { scene.remove(enemies[i]); disposeObj(enemies[i]); enemies.splice(i, 1); removed++; } }
@@ -918,6 +950,7 @@ function beginGame() {
   slotNames[slot] = nm || ('Hero ' + slot); persistNames(); showName();
   initAudio(); started = true;
   document.getElementById('start').style.display = 'none';
+  mapCv.style.display = 'block'; drawMap();
 }
 document.getElementById('startBtn').addEventListener('click', beginGame);
 document.getElementById('nameInput').addEventListener('keydown', e => { if (e.code === 'Enter') beginGame(); });
