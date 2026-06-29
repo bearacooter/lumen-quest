@@ -220,6 +220,7 @@ const T = {
   wood: { c: 0x53381f },                    // pews, choir loft, woodwork
   azure: { c: 0x243a86, e: 0x101a45, ei: 0.18 }, // painted vault — deep starry blue
   glassP: { c: 0x7a4fa0, glass: true }, glassY: { c: 0xd8c24a, glass: true }, // purple + gold stained glass
+  invis: { c: 0x000000, invis: true },     // solid for footing/camera, never drawn (collision shell for smooth meshes)
 };
 const box = new THREE.BoxGeometry(1, 1, 1);
 // tiny procedural texture so blocks read as material, not flat colour
@@ -282,6 +283,7 @@ function remesh() {
   for (const k in meshOf) { scene.remove(meshOf[k]); meshOf[k].dispose(); delete meshOf[k]; delete posOf[k]; }
   const m = new THREE.Matrix4();
   for (const type in groups) {
+    if (T[type].invis) continue;                 // collision-only blocks are never rendered
     const positions = groups[type]; posOf[type] = positions;
     const mesh = new THREE.InstancedMesh(box, matOf[type], positions.length);
     mesh.castShadow = !T[type].water && !T[type].glass; mesh.receiveShadow = true;
@@ -333,167 +335,154 @@ function clear(x0, x1, y0, y1, z0, z1) {
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) removeBlock(x, y, z);
 }
 function buildShrine() {
-  // A lavishly detailed Gothic Revival cathedral — deliberately far richer than the rest of the world.
-  const FH = 3, fz = -4, bz = -19, az = -22, cz = -12;   // floor / front / apse chord / apse apex / crossing
-  const nx = 4, ax = 7, tx = 6;                          // arcade pier line | aisle outer wall | tower centre
-  const aisH = FH + 7, clH = FH + 12, vlt = FH + 16, twTop = FH + 24, spTop = twTop + 11;
-  const setM = (x, y, z, t) => { setBlock(x, y, z, t); if (x) setBlock(-x, y, z, t); };          // mirror across the nave axis
-  const fillM = (a, b, y0, y1, z0, z1, t) => { fill(a, b, y0, y1, z0, z1, t); fill(-b, -a, y0, y1, z0, z1, t); };
-  const pinn = (x, z, y0, h) => { for (let i = 0; i < h; i++) setM(x, y0 + i, z, i === h - 1 ? 'gold' : 'white'); }; // pinnacle + finial
+  // The Shrine is built as REAL smooth architecture (not voxels) so it feels like you are there.
+  // A hidden 'invis' voxel shell handles walking/collision; everything you see is a Three.js mesh group.
+  const FH = 3, fy = FH + 0.5;                 // floor top (the hero stands here)
+  const fz = -3, bz = -20;                     // front (door) and back (apse) of the nave
+  const HX = 6;                                // interior half-width (wall line)
+  const cz = (fz + bz) / 2, depth = fz - bz + 1, colZ = [-5, -8, -11, -14, -17];
 
-  // ===== clear the envelope (terrain + trees), raise a stone podium / parvis =====
-  clear(-tx - 4, tx + 4, FH, spTop + 4, az - 4, fz + 9);
-  fill(-ax - 2, ax + 2, FH - 4, FH - 1, az - 1, fz + 6, 'stone');          // podium mass
-  fill(-ax - 2, ax + 2, FH, FH, az - 1, fz + 6, 'white');                  // parvis pavement
-  fill(-ax, ax, FH, FH, az, fz, 'white');                                  // interior floor (nave + aisles)
-  for (let z = fz; z >= az; z--) fill(-1, 1, FH, FH, z, z, 'marble');       // processional runner
-  for (let s = 1; s <= 3; s++) fill(-4, 4, FH - s, FH - s, fz + 3 + s, fz + 3 + s, 'white'); // entrance steps to grade
+  // ---------- invisible collision shell ----------
+  clear(-HX - 2, HX + 2, FH, FH + 26, bz - 8, fz + 4);                       // carve terrain/trees out of the envelope
+  fill(-HX, HX, FH - 2, FH, bz, fz, 'invis');                               // floor slab
+  for (let z = bz; z <= fz; z++) for (let y = FH + 1; y <= FH + 6; y++) { setBlock(-HX, y, z, 'invis'); setBlock(HX, y, z, 'invis'); }
+  for (let x = -HX; x <= HX; x++) for (let y = FH + 1; y <= FH + 6; y++) setBlock(x, y, bz, 'invis');               // back wall
+  for (let x = -HX; x <= HX; x++) if (x < -1 || x > 1) for (let y = FH + 1; y <= FH + 6; y++) setBlock(x, y, fz, 'invis'); // front wall + door gap
+  for (const c of colZ) for (const cx of [-5, 5]) for (let y = FH + 1; y <= FH + 4; y++) setBlock(cx, y, c, 'invis'); // column cores
+  fill(-3, 3, FH + 1, FH + 6, bz + 1, bz + 2, 'invis');                     // altar mass
+  for (let z = fz + 1; z <= fz + 4; z++) fill(-2, 2, FH, FH, z, z, 'invis'); // threshold/steps approach
+  fill(-2, 2, FH - 1, FH - 1, fz + 1, fz + 5, 'invis');
 
-  // ===== aisle outer walls: stained lancets, buttresses + pinnacles, lean-to roofs =====
-  for (let z = bz; z <= fz; z++) {
-    for (let y = FH + 1; y <= aisH; y++) setM(ax, y, z, 'brick');
-    if ((fz - z) % 3 === 1) {                                              // a window every third bay
-      const c = (((fz - z) / 3) | 0) % 3, col = c === 0 ? 'glassB' : c === 1 ? 'glassR' : 'glassY';
-      for (let y = FH + 3; y <= FH + 5; y++) setM(ax, y, z, col); setM(ax, FH + 6, z, 'white'); // pointed head
-    }
-  }
-  for (let z = bz + 1; z <= fz - 1; z += 3) {                              // buttresses between bays
-    for (let y = FH + 1; y <= aisH + 1; y++) setM(ax + 1, y, z, 'brick');
-    setM(ax + 1, aisH + 2, z, 'white'); pinn(ax + 1, z, aisH + 3, 3);
-    setM(ax - 1, aisH + 3, z, 'white'); setM(nx, clH - 2, z, 'white');     // flying-buttress hint to the clerestory
-  }
-  for (let z = bz; z <= fz; z++) for (let x = nx + 1; x <= ax + 1; x++) setM(x, aisH + (ax + 1 - x), z, 'slate'); // aisle lean-to roofs
-
-  // ===== nave arcade (clustered piers + pointed arches) and clerestory above =====
-  for (let z = fz - 1; z >= bz + 1; z -= 3) {
-    for (let y = FH + 1; y <= FH + 8; y++) setM(nx, y, z, 'white');        // clustered faux-marble shaft
-    setM(nx, FH + 1, z, 'marble'); setM(nx, FH + 8, z, 'gold');            // moulded base + gilded capital
-    setM(nx, FH + 9, z - 1, 'brick'); setM(nx, FH + 10, z - 2, 'brick'); setM(nx, FH + 9, z - 3, 'brick'); // arch to next pier
-  }
-  for (let z = bz + 1; z <= fz - 1; z++) {                                 // clerestory wall + windows
-    for (let y = FH + 9; y <= clH; y++) setM(nx, y, z, 'brick');
-    if ((fz - z) % 3 === 2) { for (let y = FH + 9; y <= FH + 11; y++) setM(nx, y, z, 'glassB'); setM(nx, clH, z, 'white'); }
-  }
-
-  // ===== painted vault over the nave (azure, white ribs, gilded star bosses) =====
-  for (let z = bz + 1; z <= fz - 1; z++) for (let x = -nx; x <= nx; x++) {
-    const h = clH + Math.round(Math.sqrt(Math.max(0, nx * nx - x * x)));   // shallow pointed profile
-    setBlock(x, h, z, (z % 3 === 0 || x === 0) ? 'white' : 'azure');       // ribs vs painted webs
-    if (x === 0 && z % 4 === 0) setBlock(0, h, z, 'gold');                 // star boss
-  }
-  for (let z = bz; z <= fz - 1; z++) for (let x = -nx - 1; x <= nx + 1; x++) setBlock(x, vlt + 1 + (nx + 1 - Math.abs(x)), z, 'slate'); // steep roof
-
-  // ===== polygonal apse (east end) with tall radiating stained windows =====
-  const apse = [[nx, bz], [3, bz - 1], [2, bz - 2], [1, bz - 3], [0, bz - 3]];
-  apse.forEach(([px, pz], i) => {
-    for (let y = FH + 1; y <= clH - 1; y++) setM(px, y, pz, 'brick');
-    for (let y = FH + 4; y <= FH + 9; y++) setM(px, y, pz, i % 2 ? 'glassP' : 'glassY');
-    setM(px, clH, pz, 'white'); pinn(px, pz, clH + 1, 2);
-    for (let r = 0; r <= 3; r++) setM(px, clH + r, pz - r, 'slate');       // half-cone roof
-  });
-
-  // ===== transepts (cross arms) at the crossing, each with a gable + great window =====
-  for (let z = cz - 1; z <= cz + 1; z++) for (let x = ax; x <= 10; x++) setM(x, FH, z, 'white'); // arm floor
-  for (const zc of [cz - 2, cz + 2]) for (let x = ax; x <= 10; x++) for (let y = FH + 1; y <= clH; y++) setM(x, y, zc, 'brick'); // arm side walls
-  for (let z = cz - 1; z <= cz + 1; z++) for (let y = FH + 1; y <= clH; y++) setM(10, y, z, 'brick'); // arm end wall
-  for (let z = cz - 1; z <= cz + 1; z++) for (let y = FH + 4; y <= FH + 9; y++) setM(10, y, z, z === cz ? 'glassR' : 'glassB'); // end window
-  for (let i = 0; i <= 3; i++) for (let x = ax - i; x <= 10 + i; x++) setM(x, clH + 1 + i, cz, 'slate'); // transept gable roof
-  clear(ax, ax, FH + 1, FH + 8, cz - 1, cz + 1);                          // open nave↔transept
-
-  // ===== crossing fleche (slender spire over the heart of the church) =====
-  for (let y = vlt + 1; y <= vlt + 6; y++) setBlock(0, y, cz, 'slate');
-  setBlock(0, vlt + 7, cz, 'gold'); setBlock(0, vlt + 8, cz, 'gold'); setBlock(-1, vlt + 7, cz, 'gold'); setBlock(1, vlt + 7, cz, 'gold');
-
-  // ===== FRONT FAÇADE: three deep portals, a great wheel window, a crocketed gable =====
-  for (let x = -nx; x <= nx; x++) for (let y = FH + 1; y <= FH + 13; y++) setBlock(x, y, fz, 'brick');
-  for (let x = -nx; x <= nx; x++) setBlock(x, FH + 1, fz, 'white');
-  clear(-1, 1, FH + 1, FH + 5, fz, fz); clear(0, 0, FH + 6, FH + 6, fz, fz);       // central portal
-  setBlock(-2, FH + 5, fz, 'white'); setBlock(2, FH + 5, fz, 'white'); setBlock(-1, FH + 6, fz, 'white'); setBlock(1, FH + 6, fz, 'white'); setBlock(0, FH + 7, fz, 'white');
-  for (const sx of [-3, 3]) { clear(sx, sx, FH + 1, FH + 3, fz, fz); setBlock(sx, FH + 4, fz, 'white'); } // flanking portals
-  const rcy = FH + 10;                                                              // great wheel (rose) window
-  for (let dx = -3; dx <= 3; dx++) for (let dy = -3; dy <= 3; dy++) {
-    const d = Math.hypot(dx, dy); if (d > 3.4) continue;
-    setBlock(dx, rcy + dy, fz, d > 2.45 || dx === 0 || dy === 0 || Math.abs(dx) === Math.abs(dy) ? 'white' : ((dx + dy) & 1) ? 'glassR' : 'glassB');
-  }
-  setBlock(0, rcy, fz, 'gold');
-  const gpk = FH + 16;                                                              // crocketed gable
-  for (let y = FH + 13; y <= gpk; y++) { const w = gpk - y; for (let x = -w; x <= w; x++) setBlock(x, y, fz, 'brick'); setBlock(-w - 1, y, fz, 'white'); setBlock(w + 1, y, fz, 'white'); if ((gpk - y) % 2 === 0) { setBlock(-w - 1, y + 1, fz, 'gold'); setBlock(w + 1, y + 1, fz, 'gold'); } }
-  setBlock(0, gpk, fz, 'brick'); setBlock(0, gpk + 2, fz, 'gold'); setBlock(0, gpk + 1, fz, 'gold'); setBlock(-1, gpk + 1, fz, 'gold'); setBlock(1, gpk + 1, fz, 'gold');
-
-  // ===== TWIN TOWERS — stepped buttresses, stone bands, belfries, tall spires, corner pinnacles =====
-  const tower = cx => {
-    fill(cx - 1, cx + 1, FH - 2, twTop, fz - 1, fz + 1, 'brick');
-    for (const by of [FH + 1, FH + 6, FH + 12, FH + 18, twTop]) fill(cx - 1, cx + 1, by, by, fz - 1, fz + 1, 'white'); // string courses
-    for (let y = FH + 3; y <= FH + 16; y += 4) { setBlock(cx, y, fz + 1, 'glassB'); setBlock(cx, y + 1, fz + 1, 'glassB'); setBlock(cx + 1, y, fz, 'glassB'); setBlock(cx - 1, y, fz, 'glassB'); } // lancets
-    for (let y = FH + 19; y <= FH + 23; y++) { setBlock(cx, y, fz + 1, 'slate'); setBlock(cx, y, fz - 1, 'slate'); setBlock(cx + 1, y, fz, 'slate'); setBlock(cx - 1, y, fz, 'slate'); } // belfry louvers
-    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) pinn(cx + dx, fz + dz, twTop + 1, 3); // corner pinnacles
-    fill(cx - 1, cx + 1, twTop + 1, twTop + 1, fz - 1, fz + 1, 'slate');            // spire base
-    for (let i = 0; i <= 8; i++) { const r = Math.max(0, 1 - Math.floor(i / 3)); fill(cx - r, cx + r, twTop + 2 + i, twTop + 2 + i, fz - r, fz + r, 'slate'); } // tapering spire
-    setBlock(cx, spTop, fz, 'gold'); setBlock(cx, spTop + 1, fz, 'gold'); setBlock(cx - 1, spTop, fz, 'gold'); setBlock(cx + 1, spTop, fz, 'gold'); // crowning cross
+  // ---------- smooth materials ----------
+  const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: o.r ?? 0.78, metalness: o.m ?? 0, emissive: o.e ?? 0x000000, emissiveIntensity: o.ei ?? 0, transparent: !!o.t, opacity: o.o ?? 1, side: o.ds ? THREE.DoubleSide : THREE.FrontSide });
+  const M = {
+    stone: mat(0xd9d1c0, { r: .92 }), brick: mat(0x9c4a3e, { r: .95 }), marble: mat(0xeae3d2, { r: .38, m: .08 }),
+    gold: mat(0xf4d03f, { r: .3, m: .55, e: 0x7a5600, ei: .45 }), wood: mat(0x49301f, { r: .82 }), slate: mat(0x444c63, { r: .8 }),
+    dark: mat(0x140d0a, { r: 1 }), vault: mat(0x1d2a66, { r: .9, e: 0x0a1233, ei: .32, ds: 1 }), skin: mat(0xe7d8bf, { r: .8 }),
+    gB: mat(0x3f63c8, { t: 1, o: .82, e: 0x2a44b0, ei: 1.1, ds: 1 }), gR: mat(0xd0394a, { t: 1, o: .82, e: 0x9a2030, ei: 1.1, ds: 1 }),
+    gY: mat(0xe8c84a, { t: 1, o: .84, e: 0xb89a20, ei: 1.1, ds: 1 }), gG: mat(0x36a06a, { t: 1, o: .82, e: 0x1d6a44, ei: 1.1, ds: 1 }), gP: mat(0x7a4fa0, { t: 1, o: .82, e: 0x4a2f80, ei: 1.1, ds: 1 }),
   };
-  tower(-tx); tower(tx);
+  const GLASS = [M.gB, M.gR, M.gY, M.gG, M.gP];
+  const S = new THREE.Group(); S.name = 'shrine';
+  const add = (geo, m, x, y, z, rx, ry, rz) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.rotation.set(rx || 0, ry || 0, rz || 0); me.castShadow = me.receiveShadow = true; S.add(me); return me; };
 
-  // ===== INTERIOR FURNISHINGS — fully built out, entrance to altar =====
-  const statue = (x, z, base, robe, crown) => {            // a carved saint on a stone pedestal
-    setBlock(x, base + 1, z, 'white'); setBlock(x, base + 2, z, robe); setBlock(x, base + 3, z, 'marble');
-    if (crown) setBlock(x, base + 4, z, 'gold');           // mitre / halo
-  };
-  const reliquary = (x, z, name, text) => {                // a gilded reliquary you can read
-    setBlock(x, FH + 1, z, 'gold'); setBlock(x, FH + 2, z, 'glassY'); relics.push({ x, z, name, text });
-  };
-  // choir loft over the entrance, with gilded organ pipes against the front wall
-  fillM(0, ax - 1, FH + 6, FH + 6, fz - 2, fz - 1, 'wood');
-  for (let x = -5; x <= 5; x++) setBlock(x, FH + 7, fz - 2, 'wood');                // loft rail
-  for (let x = -5; x <= 5; x++) for (let y = FH + 7; y <= FH + 7 + (x % 3 === 0 ? 4 : x % 2 === 0 ? 3 : 2); y++) setBlock(x, y, fz - 1, x % 2 ? 'gold' : 'white'); // organ pipes
-  // pews — a continuous run down the whole nave, central marble aisle + side aisles kept clear
-  for (let z = fz - 2; z >= cz + 1; z--) {
-    for (const x of [-3, -2, 2, 3]) setBlock(x, FH + 1, z, 'wood');
-    if ((fz - z) % 3 === 0) for (const x of [-3, 3]) setBlock(x, FH + 2, z, 'wood'); // pew backs
-  }
-  // gilded wall sconces (they glow) + Stations of the Cross down the aisles
-  for (let z = fz - 3; z >= bz + 1; z -= 3) setM(3, FH + 5, z, 'gold');
-  for (let z = fz - 2; z >= bz + 1; z -= 4) setM(ax - 1, FH + 4, z, 'gold');
-  // a carved wooden pulpit on the gospel side, raised toward the nave
-  fill(-3, -3, FH + 1, FH + 3, cz + 3, cz + 4, 'wood'); setBlock(-3, FH + 4, cz + 3, 'gold'); setBlock(-2, FH + 1, cz + 3, 'wood');
-  // STATUES OF THE SAINTS lining the side aisles (against the outer walls, facing the nave)
-  statue(-(ax - 1), fz - 4, FH, 'azure', true);    // Our Lady
-  statue(ax - 1, fz - 4, FH, 'wood', true);        // St. Joseph
-  statue(-(ax - 1), fz - 9, FH, 'white', true);    // St. Thérèse
-  statue(ax - 1, fz - 9, FH, 'brick', true);       // St. John Paul II
-  // side altars in the transept arms, each with its patron's statue and a votive lamp
-  for (const s of [-1, 1]) {
-    fill(s * 7, s * 8, FH + 1, FH + 1, cz - 1, cz + 1, 'white');                    // altar platform
-    setBlock(s * 8, FH + 2, cz, 'gold');                                           // gilded mensa
-    statue(s * 9, cz, FH, s < 0 ? 'azure' : 'brick', true);                        // Our Lady (N) / St. Stanislaus (S)
-    setBlock(s * 8, FH + 5, cz, 'glassR');                                         // votive lamp (glows)
-  }
-  // raised sanctuary + communion rail (white marble with gilded posts, a central gate)
-  fillM(0, nx - 1, FH + 1, FH + 1, bz, cz - 2, 'white');                            // sanctuary floor (one step up)
-  for (let x = -3; x <= 3; x++) setBlock(x, (x < -1 || x > 1) ? FH + 2 : FH + 1, cz - 2, (x < -1 || x > 1) ? 'white' : 'marble');
-  for (const x of [-3, 3]) setBlock(x, FH + 3, cz - 2, 'gold');                     // rail end posts
-  // free-standing high altar (mensa + tabernacle) before the screen
-  fill(-2, 2, FH + 2, FH + 2, cz - 5, cz - 4, 'white');                             // predella
-  fill(-1, 1, FH + 2, FH + 3, cz - 5, cz - 5, 'gold'); setBlock(0, FH + 4, cz - 5, 'gold'); // mensa + tabernacle
-  setBlock(2, FH + 4, cz - 4, 'glassR'); setBlock(-2, FH + 4, cz - 4, 'glassR');    // sanctuary lamps
-  // THE TOWERING GILDED REREDOS — soaring carved altarpiece rising to the vault, tiers of canopied
-  // niches with saints, stepped pinnacles, a central spire and crucifix (the church's glory)
-  const rz = bz;
-  fill(-3, 3, FH + 2, FH + 13, rz, rz, 'gold'); fill(-2, 2, FH + 14, FH + 17, rz, rz, 'gold');
-  for (const ty of [FH + 4, FH + 8, FH + 12]) for (const x of [-2, 0, 2]) {         // three tiers of niches + statues
-    setBlock(x, ty, rz, x === 0 ? 'azure' : 'brick'); setBlock(x, ty + 1, rz, 'marble'); setBlock(x, ty + 2, rz, 'white'); // canopy
-  }
-  for (const [x, h] of [[-3, 15], [-2, 18], [2, 18], [3, 15]]) for (let y = FH + 13; y <= FH + h; y++) setBlock(x, y, rz, y === FH + h ? 'white' : 'gold'); // stepped flanking pinnacles
-  for (let y = FH + 18; y <= FH + 22; y++) setBlock(0, y, rz, 'gold');              // soaring central spire
-  setBlock(0, FH + 21, rz, 'white'); setBlock(-1, FH + 20, rz, 'gold'); setBlock(1, FH + 20, rz, 'gold'); // crucifix near the vault
-  // HISTORICAL RELICS on display — walk up and press E to read
-  reliquary(6, fz - 6, 'Relic of St. Stanislaus', 'A first-class relic of St. Stanislaus, Bishop and Martyr of Krakow (1030-1079) — patron of this shrine and of Poland.');
-  reliquary(-6, fz - 6, 'The Founding, 1873', 'Polish immigrants founded this parish in Cleveland\'s Warszawa district; the great church was dedicated in 1891.');
-  reliquary(6, cz, 'Relic of the True Cross', 'A fragment of the True Cross is venerated here. "We adore Thee, O Christ, and we bless Thee."');
-  reliquary(-6, cz, 'St. John Paul II', 'A relic of Pope St. John Paul II, the Polish pope, beloved of this community.');
-  reliquary(0, bz + 1, 'The High Altar', 'Carved and gilded, rising over 60 feet — among the tallest wooden altars in America, surviving the 1909 tornado that toppled the spires.');
+  // ---------- floor + processional carpet ----------
+  add(new THREE.BoxGeometry(2 * HX, 0.5, depth), M.marble, 0, fy - 0.25, cz);
+  add(new THREE.BoxGeometry(2.2, 0.08, depth - 1), mat(0x8a1f2a, { r: .55 }), 0, fy + 0.04, cz);
 
-  // ===== stone path from the doors out to the world =====
-  for (let z = fz + 7; z <= fz + 10; z++) fill(-1, 1, heightAt(0, z), heightAt(0, z), z, z, 'white');
+  // ---------- nave columns (two rows): base, shaft, gilded ring + capital ----------
+  const shaft = new THREE.CylinderGeometry(0.42, 0.5, 8.6, 14), baseG = new THREE.CylinderGeometry(0.6, 0.74, 0.6, 14),
+    capG = new THREE.CylinderGeometry(0.64, 0.5, 0.6, 14), ringG = new THREE.TorusGeometry(0.52, 0.09, 8, 18);
+  for (const c of colZ) for (const cx of [-5, 5]) {
+    add(shaft, M.marble, cx, fy + 4.3, c); add(baseG, M.stone, cx, fy + 0.3, c);
+    add(capG, M.stone, cx, fy + 8.7, c); add(ringG, M.gold, cx, fy + 8.45, c, Math.PI / 2);
+  }
+
+  // ---------- outer walls with tall glowing stained-glass windows + stone mullions ----------
+  for (const sgn of [-1, 1]) {
+    add(new THREE.BoxGeometry(0.5, 9, depth), M.stone, sgn * HX, fy + 4.5, cz);
+    const ry = sgn < 0 ? Math.PI / 2 : -Math.PI / 2;
+    colZ.forEach((c, i) => {
+      add(new THREE.PlaneGeometry(2.2, 4.6), GLASS[i % 5], sgn * (HX - 0.26), fy + 4.4, c, 0, ry);
+      add(new THREE.BoxGeometry(0.12, 4.8, 0.12), M.stone, sgn * (HX - 0.24), fy + 4.4, c);
+    });
+  }
+
+  // ---------- faceted barrel vault (deep blue) with gilded ribs + star bosses ----------
+  const segN = 9, vr = 5, vyc = fy + 8.6, chord = 2 * vr * Math.sin(Math.PI / (2 * segN));
+  for (let i = 0; i < segN; i++) {
+    const am = Math.PI * (i + 0.5) / segN, x = vr * Math.cos(am), y = vyc + vr * Math.sin(am);
+    add(new THREE.BoxGeometry(chord + 0.05, 0.24, depth), M.vault, x, y, cz, 0, 0, am + Math.PI / 2);
+  }
+  for (const rz of [...colZ, fz, bz]) for (let i = 0; i < segN; i++) {
+    const am = Math.PI * (i + 0.5) / segN, x = vr * Math.cos(am), y = vyc + vr * Math.sin(am);
+    add(new THREE.BoxGeometry(chord * 0.55, 0.3, 0.18), M.gold, x, y + 0.04, rz, 0, 0, am + Math.PI / 2);
+  }
+  for (const rz of colZ) add(new THREE.OctahedronGeometry(0.24), M.gold, 0, vyc + vr + 0.1, rz);
+
+  // ---------- back wall + glowing apse window behind the altar ----------
+  add(new THREE.BoxGeometry(2 * HX, 11, 0.5), M.stone, 0, fy + 5.5, bz - 0.2);
+  add(new THREE.PlaneGeometry(4.4, 5), M.gY, 0, fy + 7.5, bz + 0.05);
+  add(new THREE.TorusGeometry(2.4, 0.18, 10, 28), M.stone, 0, fy + 8, bz + 0.06);
+
+  // ---------- THE HIGH ALTAR — a soaring gilded reredos (the glory of the church) ----------
+  const az = bz + 1.4;
+  add(new THREE.BoxGeometry(7, 9, 1.2), M.gold, 0, fy + 4.5, az);
+  for (const ty of [2.4, 4.8, 7.2]) for (const nx2 of [-2.2, 0, 2.2]) {
+    add(new THREE.BoxGeometry(1.1, 1.9, 0.3), M.dark, nx2, fy + ty, az + 0.62);
+    add(new THREE.CylinderGeometry(0.16, 0.26, 1.1, 8), nx2 === 0 ? M.gB : M.marble, nx2, fy + ty - 0.05, az + 0.78);
+    add(new THREE.SphereGeometry(0.19, 10, 8), M.skin, nx2, fy + ty + 0.6, az + 0.78);
+  }
+  for (const [px, ph] of [[-3, 11], [-1.4, 13], [1.4, 13], [3, 11]]) add(new THREE.ConeGeometry(0.5, 3, 8), M.gold, px, fy + ph, az);
+  add(new THREE.ConeGeometry(0.72, 5, 8), M.gold, 0, fy + 12, az);
+  add(new THREE.BoxGeometry(0.3, 2.6, 0.3), M.gold, 0, fy + 15.6, az);
+  add(new THREE.BoxGeometry(1.5, 0.3, 0.3), M.gold, 0, fy + 15.9, az);
+  add(new THREE.BoxGeometry(2.8, 1.2, 1.3), M.marble, 0, fy + 0.6, az + 3);        // free-standing altar table
+  add(new THREE.BoxGeometry(0.9, 0.9, 0.9), M.gold, 0, fy + 1.7, az + 3);          // tabernacle
+  for (const sx of [-2.4, 2.4]) add(new THREE.SphereGeometry(0.16, 8, 8), M.gR, sx, fy + 1.4, az + 2.6); // sanctuary lamps
+
+  // ---------- communion rail (marble with gilded posts, central gate) ----------
+  for (const sx of [-3.2, -2.2, 2.2, 3.2]) add(new THREE.BoxGeometry(0.95, 0.9, 0.25), M.marble, sx, fy + 0.45, bz + 5);
+  for (const sx of [-3.6, -1.7, 1.7, 3.6]) add(new THREE.BoxGeometry(0.22, 1.1, 0.3), M.gold, sx, fy + 0.55, bz + 5);
+
+  // ---------- pews down the nave (central + side aisles kept clear) ----------
+  for (let z = fz - 1.6; z >= bz + 6; z -= 1.35) for (const sgn of [-1, 1]) {
+    add(new THREE.BoxGeometry(2.8, 0.5, 0.55), M.wood, sgn * 2.5, fy + 0.35, z);
+    add(new THREE.BoxGeometry(2.8, 0.95, 0.16), M.wood, sgn * 2.5, fy + 0.8, z - 0.34);
+  }
+
+  // ---------- carved pulpit on the gospel side ----------
+  add(new THREE.CylinderGeometry(0.85, 0.65, 2, 8), M.wood, -4.1, fy + 1, -10);
+  add(new THREE.TorusGeometry(0.85, 0.1, 8, 16), M.gold, -4.1, fy + 1.9, -10, Math.PI / 2);
+
+  // ---------- statues of the saints lining the aisles ----------
+  const saint = (x, z, robe) => {
+    add(new THREE.CylinderGeometry(0.5, 0.62, 0.4, 12), M.stone, x, fy + 0.2, z);
+    add(new THREE.CylinderGeometry(0.27, 0.42, 1.7, 10), robe, x, fy + 1.1, z);
+    add(new THREE.SphereGeometry(0.25, 12, 10), M.skin, x, fy + 2.1, z);
+    add(new THREE.TorusGeometry(0.3, 0.05, 8, 16), M.gold, x, fy + 2.35, z, Math.PI / 2);
+  };
+  saint(-4.4, -6, M.gB); saint(4.4, -6, M.wood); saint(-4.4, -11, M.marble);
+  saint(4.4, -11, M.gR); saint(-4.4, -16, M.gG); saint(4.4, -16, M.gP);
+
+  // ---------- choir loft + gilded organ pipes over the entrance ----------
+  add(new THREE.BoxGeometry(2 * HX - 1, 0.4, 2), M.wood, 0, fy + 5.5, fz - 1.2);
+  for (let k = -5; k <= 5; k++) add(new THREE.CylinderGeometry(0.16, 0.16, 2 + Math.abs(k % 3), 8), k % 2 ? M.gold : M.marble, k * 0.5, fy + 7 + Math.abs(k % 3) / 2, fz - 1.6);
+
+  // ---------- FRONT FAÇADE: portal, great rose window, gable ----------
+  add(new THREE.BoxGeometry(2 * HX, 12, 0.5), M.brick, 0, fy + 6, fz);
+  add(new THREE.BoxGeometry(2.4, 4.4, 0.9), M.dark, 0, fy + 2.2, fz - 0.15);
+  add(new THREE.CylinderGeometry(1.2, 1.2, 0.9, 16, 1, false, 0, Math.PI), M.dark, 0, fy + 4.4, fz - 0.15);
+  add(new THREE.TorusGeometry(1.7, 0.24, 10, 28), M.stone, 0, fy + 8.2, fz - 0.15);
+  add(new THREE.CircleGeometry(1.55, 24), M.gR, 0, fy + 8.2, fz - 0.22);
+  for (let k = 0; k < 8; k++) add(new THREE.BoxGeometry(0.13, 3, 0.1), M.stone, 0, fy + 8.2, fz - 0.19, 0, 0, k / 8 * Math.PI);
+  add(new THREE.ConeGeometry(HX + 0.6, 3.5, 4), M.slate, 0, fy + 13.5, fz, 0, Math.PI / 4, 0);
+  add(new THREE.BoxGeometry(0.3, 2.2, 0.3), M.gold, 0, fy + 15.8, fz); add(new THREE.BoxGeometry(1.1, 0.3, 0.3), M.gold, 0, fy + 16, fz);
+
+  // ---------- twin towers with smooth conical spires + gold crosses ----------
+  for (const sgn of [-1, 1]) {
+    add(new THREE.BoxGeometry(2.6, 17, 2.6), M.brick, sgn * (HX + 0.9), fy + 8.5, fz - 0.4);
+    for (const by of [3, 8, 13]) add(new THREE.BoxGeometry(2.7, 0.4, 2.7), M.stone, sgn * (HX + 0.9), fy + by, fz - 0.4);
+    add(new THREE.BoxGeometry(0.6, 3, 0.2), M.gB, sgn * (HX + 0.9), fy + 11, fz - 0.4 + 1.3); // belfry louver hint
+    add(new THREE.ConeGeometry(2, 8, 8), M.slate, sgn * (HX + 0.9), fy + 21, fz - 0.4);
+    add(new THREE.BoxGeometry(0.3, 1.6, 0.3), M.gold, sgn * (HX + 0.9), fy + 25.6, fz - 0.4);
+    add(new THREE.BoxGeometry(1, 0.3, 0.3), M.gold, sgn * (HX + 0.9), fy + 25.9, fz - 0.4);
+  }
+
+  // ---------- slate gable roof over the nave ----------
+  for (const sgn of [-1, 1]) add(new THREE.BoxGeometry(0.3, 8, depth), M.slate, sgn * 2.7, fy + 16, cz, 0, 0, sgn * 0.62);
+  add(new THREE.BoxGeometry(1.4, 0.5, depth), M.slate, 0, fy + 18.6, cz);
+
+  scene.add(S);
+
+  // ---------- relics on display (walk up + press E) ----------
+  relics.length = 0;
+  const reliq = (x, z, name, text) => { add(new THREE.BoxGeometry(0.55, 0.7, 0.55), M.gold, x, fy + 0.7, z); add(new THREE.BoxGeometry(0.36, 0.5, 0.36), M.gY, x, fy + 1.3, z); relics.push({ x, z, name, text }); };
+  reliq(4.5, -4, 'Relic of St. Stanislaus', 'A first-class relic of St. Stanislaus, Bishop and Martyr of Krakow (1030-1079) - patron of this shrine and of Poland.');
+  reliq(-4.5, -4, 'The Founding, 1873', "Polish immigrants founded this parish in Cleveland's Warszawa district; the great church was dedicated in 1891.");
+  reliq(4.5, -9, 'Relic of the True Cross', 'A fragment of the True Cross is venerated here. "We adore Thee, O Christ, and we bless Thee."');
+  reliq(-4.5, -9, 'St. John Paul II', 'A relic of Pope St. John Paul II, the Polish pope, beloved of this community.');
+  reliq(0, bz + 3.9, 'The High Altar', 'Carved and gilded, rising over 60 feet - among the tallest altars in America, it survived the 1909 tornado that toppled the spires.');
 }
 const relics = [];   // reliquaries you can walk up to and read (press E)
 buildShrine();
