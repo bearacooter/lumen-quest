@@ -366,8 +366,8 @@ function buildShrine() {
 
   // ===== nave arcade (clustered piers + pointed arches) and clerestory above =====
   for (let z = fz - 1; z >= bz + 1; z -= 3) {
-    for (let y = FH + 1; y <= FH + 8; y++) setM(nx, y, z, 'brick');
-    setM(nx, FH + 1, z, 'white'); setM(nx, FH + 8, z, 'white');            // base + capital
+    for (let y = FH + 1; y <= FH + 8; y++) setM(nx, y, z, 'white');        // clustered faux-marble shaft
+    setM(nx, FH + 1, z, 'marble'); setM(nx, FH + 8, z, 'gold');            // moulded base + gilded capital
     setM(nx, FH + 9, z - 1, 'brick'); setM(nx, FH + 10, z - 2, 'brick'); setM(nx, FH + 9, z - 3, 'brick'); // arch to next pier
   }
   for (let z = bz + 1; z <= fz - 1; z++) {                                 // clerestory wall + windows
@@ -433,34 +433,69 @@ function buildShrine() {
   };
   tower(-tx); tower(tx);
 
-  // ===== INTERIOR FURNISHINGS =====
-  // choir loft over the entrance, with a row of gilded organ pipes against the front wall
+  // ===== INTERIOR FURNISHINGS — fully built out, entrance to altar =====
+  const statue = (x, z, base, robe, crown) => {            // a carved saint on a stone pedestal
+    setBlock(x, base + 1, z, 'white'); setBlock(x, base + 2, z, robe); setBlock(x, base + 3, z, 'marble');
+    if (crown) setBlock(x, base + 4, z, 'gold');           // mitre / halo
+  };
+  const reliquary = (x, z, name, text) => {                // a gilded reliquary you can read
+    setBlock(x, FH + 1, z, 'gold'); setBlock(x, FH + 2, z, 'glassY'); relics.push({ x, z, name, text });
+  };
+  // choir loft over the entrance, with gilded organ pipes against the front wall
   fillM(0, ax - 1, FH + 6, FH + 6, fz - 2, fz - 1, 'wood');
   for (let x = -5; x <= 5; x++) setBlock(x, FH + 7, fz - 2, 'wood');                // loft rail
   for (let x = -5; x <= 5; x++) for (let y = FH + 7; y <= FH + 7 + (x % 3 === 0 ? 4 : x % 2 === 0 ? 3 : 2); y++) setBlock(x, y, fz - 1, x % 2 ? 'gold' : 'white'); // organ pipes
-  // pews flanking the central marble aisle
-  for (let z = fz - 3; z >= cz + 2; z -= 2) for (const x of [-3, -2, 2, 3]) setBlock(x, FH + 1, z, 'wood');
-  // stations of the cross along the aisle walls
-  for (let z = fz - 2; z >= bz + 1; z -= 4) { setM(ax - 1, FH + 5, z, 'gold'); }
-  // raised sanctuary, communion rail, and the towering gilded REREDOS (the showpiece)
-  fillM(0, nx - 1, FH + 1, FH + 1, bz, cz - 2, 'white');                            // sanctuary predella (one step up)
-  for (const x of [-3, -1, 1, 3]) setBlock(x, FH + 2, cz - 2, 'gold');              // communion rail posts
-  for (let x = -3; x <= 3; x++) if (x < -1 || x > 1) setBlock(x, FH + 2, cz - 2, 'white'); else setBlock(x, FH + 1, cz - 2, 'marble'); // rail w/ centre gate
-  const rz = bz;                                                                    // gilded screen on the apse chord
-  fill(-3, 3, FH + 2, FH + 11, rz, rz, 'gold');
-  for (const x of [-3, -1, 1, 3]) clear(x, x, FH + 5, FH + 8, rz, rz);              // niches
-  for (const x of [-3, -1, 1, 3]) { setBlock(x, FH + 5, rz, 'white'); setBlock(x, FH + 6, rz, 'white'); setBlock(x, FH + 7, rz, 'marble'); } // statues
-  for (const x of [-3, 3]) pinn(x, rz, FH + 12, 3);                                 // flanking pinnacles
-  for (let y = FH + 12; y <= FH + 17; y++) setBlock(0, y, rz, 'gold');              // central spire
-  setBlock(0, FH + 18, rz, 'gold'); setBlock(-1, FH + 16, rz, 'gold'); setBlock(1, FH + 16, rz, 'gold'); // crucifix
-  fill(-2, 2, FH + 2, FH + 2, cz - 4, cz - 3, 'white');                             // free-standing altar predella
-  fill(-1, 1, FH + 2, FH + 3, cz - 4, cz - 4, 'gold'); setBlock(0, FH + 4, cz - 4, 'gold'); // mensa + tabernacle
-  // a sanctuary lamp glowing red near the altar
-  setBlock(3, FH + 8, cz - 3, 'glassR'); setBlock(-3, FH + 8, cz - 3, 'glassR');
+  // pews — a continuous run down the whole nave, central marble aisle + side aisles kept clear
+  for (let z = fz - 2; z >= cz + 1; z--) {
+    for (const x of [-3, -2, 2, 3]) setBlock(x, FH + 1, z, 'wood');
+    if ((fz - z) % 3 === 0) for (const x of [-3, 3]) setBlock(x, FH + 2, z, 'wood'); // pew backs
+  }
+  // gilded wall sconces (they glow) + Stations of the Cross down the aisles
+  for (let z = fz - 3; z >= bz + 1; z -= 3) setM(3, FH + 5, z, 'gold');
+  for (let z = fz - 2; z >= bz + 1; z -= 4) setM(ax - 1, FH + 4, z, 'gold');
+  // a carved wooden pulpit on the gospel side, raised toward the nave
+  fill(-3, -3, FH + 1, FH + 3, cz + 3, cz + 4, 'wood'); setBlock(-3, FH + 4, cz + 3, 'gold'); setBlock(-2, FH + 1, cz + 3, 'wood');
+  // STATUES OF THE SAINTS lining the side aisles (against the outer walls, facing the nave)
+  statue(-(ax - 1), fz - 4, FH, 'azure', true);    // Our Lady
+  statue(ax - 1, fz - 4, FH, 'wood', true);        // St. Joseph
+  statue(-(ax - 1), fz - 9, FH, 'white', true);    // St. Thérèse
+  statue(ax - 1, fz - 9, FH, 'brick', true);       // St. John Paul II
+  // side altars in the transept arms, each with its patron's statue and a votive lamp
+  for (const s of [-1, 1]) {
+    fill(s * 7, s * 8, FH + 1, FH + 1, cz - 1, cz + 1, 'white');                    // altar platform
+    setBlock(s * 8, FH + 2, cz, 'gold');                                           // gilded mensa
+    statue(s * 9, cz, FH, s < 0 ? 'azure' : 'brick', true);                        // Our Lady (N) / St. Stanislaus (S)
+    setBlock(s * 8, FH + 5, cz, 'glassR');                                         // votive lamp (glows)
+  }
+  // raised sanctuary + communion rail (white marble with gilded posts, a central gate)
+  fillM(0, nx - 1, FH + 1, FH + 1, bz, cz - 2, 'white');                            // sanctuary floor (one step up)
+  for (let x = -3; x <= 3; x++) setBlock(x, (x < -1 || x > 1) ? FH + 2 : FH + 1, cz - 2, (x < -1 || x > 1) ? 'white' : 'marble');
+  for (const x of [-3, 3]) setBlock(x, FH + 3, cz - 2, 'gold');                     // rail end posts
+  // free-standing high altar (mensa + tabernacle) before the screen
+  fill(-2, 2, FH + 2, FH + 2, cz - 5, cz - 4, 'white');                             // predella
+  fill(-1, 1, FH + 2, FH + 3, cz - 5, cz - 5, 'gold'); setBlock(0, FH + 4, cz - 5, 'gold'); // mensa + tabernacle
+  setBlock(2, FH + 4, cz - 4, 'glassR'); setBlock(-2, FH + 4, cz - 4, 'glassR');    // sanctuary lamps
+  // THE TOWERING GILDED REREDOS — soaring carved altarpiece rising to the vault, tiers of canopied
+  // niches with saints, stepped pinnacles, a central spire and crucifix (the church's glory)
+  const rz = bz;
+  fill(-3, 3, FH + 2, FH + 13, rz, rz, 'gold'); fill(-2, 2, FH + 14, FH + 17, rz, rz, 'gold');
+  for (const ty of [FH + 4, FH + 8, FH + 12]) for (const x of [-2, 0, 2]) {         // three tiers of niches + statues
+    setBlock(x, ty, rz, x === 0 ? 'azure' : 'brick'); setBlock(x, ty + 1, rz, 'marble'); setBlock(x, ty + 2, rz, 'white'); // canopy
+  }
+  for (const [x, h] of [[-3, 15], [-2, 18], [2, 18], [3, 15]]) for (let y = FH + 13; y <= FH + h; y++) setBlock(x, y, rz, y === FH + h ? 'white' : 'gold'); // stepped flanking pinnacles
+  for (let y = FH + 18; y <= FH + 22; y++) setBlock(0, y, rz, 'gold');              // soaring central spire
+  setBlock(0, FH + 21, rz, 'white'); setBlock(-1, FH + 20, rz, 'gold'); setBlock(1, FH + 20, rz, 'gold'); // crucifix near the vault
+  // HISTORICAL RELICS on display — walk up and press E to read
+  reliquary(6, fz - 6, 'Relic of St. Stanislaus', 'A first-class relic of St. Stanislaus, Bishop and Martyr of Krakow (1030-1079) — patron of this shrine and of Poland.');
+  reliquary(-6, fz - 6, 'The Founding, 1873', 'Polish immigrants founded this parish in Cleveland\'s Warszawa district; the great church was dedicated in 1891.');
+  reliquary(6, cz, 'Relic of the True Cross', 'A fragment of the True Cross is venerated here. "We adore Thee, O Christ, and we bless Thee."');
+  reliquary(-6, cz, 'St. John Paul II', 'A relic of Pope St. John Paul II, the Polish pope, beloved of this community.');
+  reliquary(0, bz + 1, 'The High Altar', 'Carved and gilded, rising over 60 feet — among the tallest wooden altars in America, surviving the 1909 tornado that toppled the spires.');
 
   // ===== stone path from the doors out to the world =====
   for (let z = fz + 7; z <= fz + 10; z++) fill(-1, 1, heightAt(0, z), heightAt(0, z), z, z, 'white');
 }
+const relics = [];   // reliquaries you can walk up to and read (press E)
 buildShrine();
 
 // ---------- a little village to defend (wooden huts) ----------
@@ -590,7 +625,11 @@ let saintT = 0;
 function showSaint(name, text) { document.getElementById('saintName').textContent = name; document.getElementById('saintText').textContent = text; saintBox.style.opacity = 1; saintT = 5; }
 function talkSaint() {
   let best = null, bd = 3; saints.forEach(s => { const d = Math.hypot(s.userData.x - heroX, s.userData.z - heroZ); if (d < bd) { bd = d; best = s; } });
-  if (!best) return;
+  if (!best) {                                      // no saint near → read a relic plaque if you're beside one
+    let rel = null, rd = 2.5; relics.forEach(r => { const d = Math.hypot(r.x - heroX, r.z - heroZ); if (d < rd) { rd = d; rel = r; } });
+    if (rel) showSaint('✛ ' + rel.name, rel.text);
+    return;
+  }
   const q = best.userData.quest;
   let txt;
   if (!q.accepted) { q.accepted = true; q.baseline = q.type === 'banish' ? banished : q.type === 'place' ? placedCount : 0; txt = best.userData.lines[0] + '  ❖ Quest: ' + q.desc; }
@@ -717,8 +756,8 @@ function setHint() {
   const ta = document.getElementById('tAct'); if (ta) ta.textContent = mode === 'fight' ? '⚔' : '⛏';
   const tp = document.getElementById('tPlace'); if (tp) tp.style.display = mode === 'build' ? '' : 'none';
   hintEl.innerHTML = mode === 'fight'
-    ? 'WASD move · Space jump · drag look · <b>left-click</b> swing · <b>F</b> light bolt · <b>E</b> talk to saints · Tab → build'
-    : 'WASD move · 1-7 pick block · <b>left-click</b> break · <b>shift+click</b> place · <b>E</b> talk to saints · Tab → fight';
+    ? 'WASD move · Space jump · drag look · <b>left-click</b> swing · <b>F</b> light bolt · <b>E</b> talk / read relics · Tab → build'
+    : 'WASD move · 1-7 pick block · <b>left-click</b> break · <b>shift+click</b> place · <b>E</b> talk / read relics · Tab → fight';
   drawHotbar();
 }
 
