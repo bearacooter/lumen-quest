@@ -927,12 +927,7 @@ function frame() {
   }
   // sparks
   for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.userData.life -= dt; s.position.addScaledVector(s.userData.v, dt); s.userData.v.y -= 6 * dt; s.material.opacity = Math.max(0, s.userData.life); s.scale.setScalar(Math.max(0.1, s.userData.life)); if (s.userData.life <= 0) { scene.remove(s); s.material.dispose(); sparks.splice(i, 1); } }
-  // camera follows hero (trails behind when walking; manual look takes over while dragging)
-  if (heroMoving && !dragging && performance.now() - lastDragMs > 1400) {
-    const fx = Math.sin(hero.rotation.y), fz = Math.cos(hero.rotation.y);
-    camera.position.lerp(new THREE.Vector3(heroX - fx * 8, hero.position.y + 5.5, heroZ - fz * 8), 0.04);
-  }
-  applyCamera(dt);
+  applyCamera(dt);   // trails behind the hero, drag-aware (the camera follow lives entirely here)
   saints.forEach(s => { s.userData.mark.rotation.y += dt * 2; s.userData.mark.position.y = 2.45 + Math.sin(t * 2) * 0.1; });
   if (msgT > 0) { msgT -= dt; if (msgT <= 0) msgEl.style.opacity = 0; }
   if (saintT > 0) { saintT -= dt; if (saintT <= 0) saintBox.style.opacity = 0; }
