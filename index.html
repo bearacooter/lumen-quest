@@ -215,6 +215,11 @@ const T = {
   brick: { c: 0x9c4444 }, white: { c: 0xe7e0cf }, slate: { c: 0x6c7a9c }, plank: { c: 0x8a5e38 },
   gold: { c: 0xf4d03f, e: 0xb8860b, ei: 0.55 },
   glassB: { c: 0x3f63a8, glass: true }, glassR: { c: 0xc23a4a, glass: true }, glassG: { c: 0x3f8c5a, glass: true },
+  // ---- Shrine showpiece palette ----
+  marble: { c: 0xefe7d2 },                 // polished processional pavement
+  wood: { c: 0x53381f },                    // pews, choir loft, woodwork
+  azure: { c: 0x243a86, e: 0x101a45, ei: 0.18 }, // painted vault — deep starry blue
+  glassP: { c: 0x7a4fa0, glass: true }, glassY: { c: 0xd8c24a, glass: true }, // purple + gold stained glass
 };
 const box = new THREE.BoxGeometry(1, 1, 1);
 // tiny procedural texture so blocks read as material, not flat colour
@@ -257,6 +262,17 @@ function removeBlock(x, y, z) {
   }
 }
 function surfaceY(x, z) { const c = colTop.get(XZ(Math.round(x), Math.round(z))); return c == null ? 0 : c + 0.5; }
+// footing that respects interiors: highest standable floor near the hero's height, needing 2 blocks of
+// head clearance — so you walk INTO buildings (under roofs) yet walls still block you. null = blocked.
+function standY(x, z, fromY) {
+  const xi = Math.round(x), zi = Math.round(z), top = colTop.get(XZ(xi, zi));
+  if (top == null) return 0;
+  const solid = y => { const t = world.get(K(xi, y, zi)); return !!(t && !T[t].water); };
+  for (let y = Math.min(top, Math.floor(fromY + 1.1)); y >= -1; y--) {
+    if (solid(y)) return (!solid(y + 1) && !solid(y + 2)) ? y + 0.5 : null; // floor w/ headroom, else a wall
+  }
+  return 0;
+}
 
 // ---------- meshing (rebuild instanced meshes on edit) ----------
 const meshOf = {}, posOf = {};
@@ -317,89 +333,133 @@ function clear(x0, x1, y0, y1, z0, z1) {
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) removeBlock(x, y, z);
 }
 function buildShrine() {
-  const FH = 3;                 // floor height (block centre y)
-  const fz = -5, bz = -22;      // front (entrance, +z side) and back
-  const x0 = -4, x1 = 4;        // nave half-width (9 wide)
-  // clear the footprint of any terrain/trees, lay foundation + stone floor
-  clear(x0 - 8, x1 + 8, FH, FH + 16, bz - 1, fz + 3);
-  fill(x0, x1, FH - 2, FH - 1, bz, fz, 'brick');
-  fill(x0, x1, FH, FH, bz, fz, 'white');                         // nave floor
-  // nave side walls (brick) with tall glass lancet windows
-  for (let z = bz + 1; z <= fz - 1; z++) {
-    for (let y = FH + 1; y <= FH + 6; y++) { setBlock(x0, y, z, 'brick'); setBlock(x1, y, z, 'brick'); }
-    if ((z - bz) % 3 === 0) for (let y = FH + 3; y <= FH + 5; y++) { setBlock(x0, y, z, 'glassB'); setBlock(x1, y, z, 'glassR'); }
+  // A lavishly detailed Gothic Revival cathedral — deliberately far richer than the rest of the world.
+  const FH = 3, fz = -4, bz = -19, az = -22, cz = -12;   // floor / front / apse chord / apse apex / crossing
+  const nx = 4, ax = 7, tx = 6;                          // arcade pier line | aisle outer wall | tower centre
+  const aisH = FH + 7, clH = FH + 12, vlt = FH + 16, twTop = FH + 24, spTop = twTop + 11;
+  const setM = (x, y, z, t) => { setBlock(x, y, z, t); if (x) setBlock(-x, y, z, t); };          // mirror across the nave axis
+  const fillM = (a, b, y0, y1, z0, z1, t) => { fill(a, b, y0, y1, z0, z1, t); fill(-b, -a, y0, y1, z0, z1, t); };
+  const pinn = (x, z, y0, h) => { for (let i = 0; i < h; i++) setM(x, y0 + i, z, i === h - 1 ? 'gold' : 'white'); }; // pinnacle + finial
+
+  // ===== clear the envelope (terrain + trees), raise a stone podium / parvis =====
+  clear(-tx - 4, tx + 4, FH, spTop + 4, az - 4, fz + 9);
+  fill(-ax - 2, ax + 2, FH - 4, FH - 1, az - 1, fz + 6, 'stone');          // podium mass
+  fill(-ax - 2, ax + 2, FH, FH, az - 1, fz + 6, 'white');                  // parvis pavement
+  fill(-ax, ax, FH, FH, az, fz, 'white');                                  // interior floor (nave + aisles)
+  for (let z = fz; z >= az; z--) fill(-1, 1, FH, FH, z, z, 'marble');       // processional runner
+  for (let s = 1; s <= 3; s++) fill(-4, 4, FH - s, FH - s, fz + 3 + s, fz + 3 + s, 'white'); // entrance steps to grade
+
+  // ===== aisle outer walls: stained lancets, buttresses + pinnacles, lean-to roofs =====
+  for (let z = bz; z <= fz; z++) {
+    for (let y = FH + 1; y <= aisH; y++) setM(ax, y, z, 'brick');
+    if ((fz - z) % 3 === 1) {                                              // a window every third bay
+      const c = (((fz - z) / 3) | 0) % 3, col = c === 0 ? 'glassB' : c === 1 ? 'glassR' : 'glassY';
+      for (let y = FH + 3; y <= FH + 5; y++) setM(ax, y, z, col); setM(ax, FH + 6, z, 'white'); // pointed head
+    }
   }
-  // back wall (apse) + a high window
-  fill(x0, x1, FH + 1, FH + 6, bz, bz, 'brick');
-  fill(-1, 1, FH + 3, FH + 5, bz, bz, 'glassG');
-  // transept (cross arms) at z ~ -13..-15
-  const tz0 = -15, tz1 = -13, tx = 8;
-  fill(x0, x1, FH, FH, tz0 - 1, tz1 + 1, 'white');
-  for (let x = x0 - tx; x <= x1 + tx; x++) { setBlock(x, FH, tz0 - 1, 'white'); setBlock(x, FH, tz1 + 1, 'white'); }
-  fill(x1 + 1, x1 + tx, FH - 2, FH - 1, tz0 - 1, tz1 + 1, 'brick'); fill(x1 + 1, x1 + tx, FH, FH, tz0 - 1, tz1 + 1, 'white');
-  fill(x0 - tx, x0 - 1, FH - 2, FH - 1, tz0 - 1, tz1 + 1, 'brick'); fill(x0 - tx, x0 - 1, FH, FH, tz0 - 1, tz1 + 1, 'white');
-  for (let x = x0 - tx; x <= x1 + tx; x++) for (let y = FH + 1; y <= FH + 6; y++) { setBlock(x, y, tz0 - 1, 'brick'); setBlock(x, y, tz1 + 1, 'brick'); }
-  for (let z = tz0; z <= tz1; z++) for (let y = FH + 1; y <= FH + 6; y++) { setBlock(x0 - tx, y, z, 'brick'); setBlock(x1 + tx, y, z, 'brick'); }
-  clear(x0, x1, FH + 1, FH + 6, tz0, tz1);   // open the crossing
-  fill(x0 - tx + 1, x1 + tx - 1, FH + 3, FH + 4, tz0, tz0, 'glassB');
-  fill(x0 - tx + 1, x1 + tx - 1, FH + 3, FH + 4, tz1, tz1, 'glassR');
-  // FRONT FAÇADE between the towers: three pointed-arch portals, a great wheel (rose) window, a gabled top
-  for (let x = x0; x <= x1; x++) for (let y = FH + 1; y <= FH + 12; y++) setBlock(x, y, fz, 'brick');
-  for (let x = x0; x <= x1; x++) setBlock(x, FH + 1, fz, 'white');               // base water-table trim
-  // central pointed-arch portal (the walk-in entrance) framed in white stone
-  clear(-1, 1, FH + 1, FH + 4, fz, fz); clear(0, 0, FH + 5, FH + 5, fz, fz);
-  setBlock(-2, FH + 4, fz, 'white'); setBlock(2, FH + 4, fz, 'white');
-  setBlock(-1, FH + 5, fz, 'white'); setBlock(1, FH + 5, fz, 'white'); setBlock(0, FH + 6, fz, 'white');
-  for (const sx of [-3, 3]) { clear(sx, sx, FH + 1, FH + 3, fz, fz); setBlock(sx, FH + 4, fz, 'white'); } // two flanking portals
-  // great WHEEL (rose) window — white stone rim + radial spokes, coloured-glass petals, gilded hub
-  const rcx = 0, rcy = FH + 9;
+  for (let z = bz + 1; z <= fz - 1; z += 3) {                              // buttresses between bays
+    for (let y = FH + 1; y <= aisH + 1; y++) setM(ax + 1, y, z, 'brick');
+    setM(ax + 1, aisH + 2, z, 'white'); pinn(ax + 1, z, aisH + 3, 3);
+    setM(ax - 1, aisH + 3, z, 'white'); setM(nx, clH - 2, z, 'white');     // flying-buttress hint to the clerestory
+  }
+  for (let z = bz; z <= fz; z++) for (let x = nx + 1; x <= ax + 1; x++) setM(x, aisH + (ax + 1 - x), z, 'slate'); // aisle lean-to roofs
+
+  // ===== nave arcade (clustered piers + pointed arches) and clerestory above =====
+  for (let z = fz - 1; z >= bz + 1; z -= 3) {
+    for (let y = FH + 1; y <= FH + 8; y++) setM(nx, y, z, 'brick');
+    setM(nx, FH + 1, z, 'white'); setM(nx, FH + 8, z, 'white');            // base + capital
+    setM(nx, FH + 9, z - 1, 'brick'); setM(nx, FH + 10, z - 2, 'brick'); setM(nx, FH + 9, z - 3, 'brick'); // arch to next pier
+  }
+  for (let z = bz + 1; z <= fz - 1; z++) {                                 // clerestory wall + windows
+    for (let y = FH + 9; y <= clH; y++) setM(nx, y, z, 'brick');
+    if ((fz - z) % 3 === 2) { for (let y = FH + 9; y <= FH + 11; y++) setM(nx, y, z, 'glassB'); setM(nx, clH, z, 'white'); }
+  }
+
+  // ===== painted vault over the nave (azure, white ribs, gilded star bosses) =====
+  for (let z = bz + 1; z <= fz - 1; z++) for (let x = -nx; x <= nx; x++) {
+    const h = clH + Math.round(Math.sqrt(Math.max(0, nx * nx - x * x)));   // shallow pointed profile
+    setBlock(x, h, z, (z % 3 === 0 || x === 0) ? 'white' : 'azure');       // ribs vs painted webs
+    if (x === 0 && z % 4 === 0) setBlock(0, h, z, 'gold');                 // star boss
+  }
+  for (let z = bz; z <= fz - 1; z++) for (let x = -nx - 1; x <= nx + 1; x++) setBlock(x, vlt + 1 + (nx + 1 - Math.abs(x)), z, 'slate'); // steep roof
+
+  // ===== polygonal apse (east end) with tall radiating stained windows =====
+  const apse = [[nx, bz], [3, bz - 1], [2, bz - 2], [1, bz - 3], [0, bz - 3]];
+  apse.forEach(([px, pz], i) => {
+    for (let y = FH + 1; y <= clH - 1; y++) setM(px, y, pz, 'brick');
+    for (let y = FH + 4; y <= FH + 9; y++) setM(px, y, pz, i % 2 ? 'glassP' : 'glassY');
+    setM(px, clH, pz, 'white'); pinn(px, pz, clH + 1, 2);
+    for (let r = 0; r <= 3; r++) setM(px, clH + r, pz - r, 'slate');       // half-cone roof
+  });
+
+  // ===== transepts (cross arms) at the crossing, each with a gable + great window =====
+  for (let z = cz - 1; z <= cz + 1; z++) for (let x = ax; x <= 10; x++) setM(x, FH, z, 'white'); // arm floor
+  for (const zc of [cz - 2, cz + 2]) for (let x = ax; x <= 10; x++) for (let y = FH + 1; y <= clH; y++) setM(x, y, zc, 'brick'); // arm side walls
+  for (let z = cz - 1; z <= cz + 1; z++) for (let y = FH + 1; y <= clH; y++) setM(10, y, z, 'brick'); // arm end wall
+  for (let z = cz - 1; z <= cz + 1; z++) for (let y = FH + 4; y <= FH + 9; y++) setM(10, y, z, z === cz ? 'glassR' : 'glassB'); // end window
+  for (let i = 0; i <= 3; i++) for (let x = ax - i; x <= 10 + i; x++) setM(x, clH + 1 + i, cz, 'slate'); // transept gable roof
+  clear(ax, ax, FH + 1, FH + 8, cz - 1, cz + 1);                          // open nave↔transept
+
+  // ===== crossing fleche (slender spire over the heart of the church) =====
+  for (let y = vlt + 1; y <= vlt + 6; y++) setBlock(0, y, cz, 'slate');
+  setBlock(0, vlt + 7, cz, 'gold'); setBlock(0, vlt + 8, cz, 'gold'); setBlock(-1, vlt + 7, cz, 'gold'); setBlock(1, vlt + 7, cz, 'gold');
+
+  // ===== FRONT FAÇADE: three deep portals, a great wheel window, a crocketed gable =====
+  for (let x = -nx; x <= nx; x++) for (let y = FH + 1; y <= FH + 13; y++) setBlock(x, y, fz, 'brick');
+  for (let x = -nx; x <= nx; x++) setBlock(x, FH + 1, fz, 'white');
+  clear(-1, 1, FH + 1, FH + 5, fz, fz); clear(0, 0, FH + 6, FH + 6, fz, fz);       // central portal
+  setBlock(-2, FH + 5, fz, 'white'); setBlock(2, FH + 5, fz, 'white'); setBlock(-1, FH + 6, fz, 'white'); setBlock(1, FH + 6, fz, 'white'); setBlock(0, FH + 7, fz, 'white');
+  for (const sx of [-3, 3]) { clear(sx, sx, FH + 1, FH + 3, fz, fz); setBlock(sx, FH + 4, fz, 'white'); } // flanking portals
+  const rcy = FH + 10;                                                              // great wheel (rose) window
   for (let dx = -3; dx <= 3; dx++) for (let dy = -3; dy <= 3; dy++) {
-    const dist = Math.hypot(dx, dy); if (dist > 3.4) continue;
-    const type = dist > 2.45 ? 'white'
-      : (dx === 0 || dy === 0 || Math.abs(dx) === Math.abs(dy)) ? 'white'        // wheel spokes
-      : ((dx + dy) & 1) ? 'glassR' : 'glassB';                                   // glass petals
-    setBlock(rcx + dx, rcy + dy, fz, type);
+    const d = Math.hypot(dx, dy); if (d > 3.4) continue;
+    setBlock(dx, rcy + dy, fz, d > 2.45 || dx === 0 || dy === 0 || Math.abs(dx) === Math.abs(dy) ? 'white' : ((dx + dy) & 1) ? 'glassR' : 'glassB');
   }
-  setBlock(rcx, rcy, fz, 'gold');
-  // triangular gable with sloped white stone coping, crowned by a gold cross
-  for (let x = x0; x <= x1; x++) setBlock(x, FH + 12, fz, 'white');              // cornice
-  const gpk = FH + 15;
-  for (let y = FH + 13; y <= gpk; y++) {
-    const w = gpk - y;                                                           // half-width shrinks to the peak
-    for (let x = -w; x <= w; x++) setBlock(x, y, fz, 'brick');
-    setBlock(-w - 1, y, fz, 'white'); setBlock(w + 1, y, fz, 'white');           // sloped coping
-  }
-  setBlock(0, gpk, fz, 'brick');
-  setBlock(0, gpk + 2, fz, 'gold'); setBlock(0, gpk + 1, fz, 'gold'); setBlock(-1, gpk + 1, fz, 'gold'); setBlock(1, gpk + 1, fz, 'gold'); // apex cross
-  // TWIN TOWERS — tall & slender, white stone bands, pointed slate spires + gold crosses
-  function tower(cx) {
-    fill(cx - 1, cx + 1, FH - 2, FH + 17, fz - 1, fz + 1, 'brick');
-    for (const by of [FH + 1, FH + 6, FH + 11, FH + 16]) fill(cx - 1, cx + 1, by, by, fz - 1, fz + 1, 'white'); // stone bands
-    for (let y = FH + 3; y <= FH + 10; y += 4) { setBlock(cx, y, fz + 1, 'glassB'); setBlock(cx, y + 1, fz + 1, 'glassB'); setBlock(cx + 1, y, fz, 'glassB'); setBlock(cx - 1, y, fz, 'glassB'); } // lancets
-    for (let y = FH + 13; y <= FH + 16; y++) { setBlock(cx, y, fz + 1, 'slate'); setBlock(cx, y, fz - 1, 'slate'); setBlock(cx + 1, y, fz, 'slate'); setBlock(cx - 1, y, fz, 'slate'); } // belfry louvers
-    // pointed slate spire
-    fill(cx - 1, cx + 1, FH + 18, FH + 18, fz - 1, fz + 1, 'slate');
-    setBlock(cx - 1, FH + 19, fz, 'slate'); setBlock(cx + 1, FH + 19, fz, 'slate'); setBlock(cx, FH + 19, fz - 1, 'slate'); setBlock(cx, FH + 19, fz + 1, 'slate');
-    for (let i = 0; i < 4; i++) setBlock(cx, FH + 19 + i, fz, 'slate'); // tall point
-    // gold cross
-    setBlock(cx, FH + 23, fz, 'gold'); setBlock(cx, FH + 24, fz, 'gold'); setBlock(cx - 1, FH + 23, fz, 'gold'); setBlock(cx + 1, FH + 23, fz, 'gold');
-  }
-  tower(x0 - 1); tower(x1 + 1);
-  // slate gable roof over the nave
-  const peak = FH + 9;
-  for (let z = bz; z <= fz - 1; z++) for (let x = x0; x <= x1; x++) {
-    const inset = Math.min(x - x0, x1 - x);
-    setBlock(x, FH + 7 + inset, z, 'slate');
-  }
-  setBlock(0, peak, bz - 0, 'gold');
-  // gilded HIGH ALTAR at the apse
-  fill(-2, 2, FH + 1, FH + 1, bz + 1, bz + 1, 'white');     // predella
-  fill(-2, 2, FH + 2, FH + 5, bz, bz + 1, 'gold');          // gilded reredos
-  for (let x = -2; x <= 2; x += 2) clear(x, x, FH + 3, FH + 4, bz + 1, bz + 1); // niches
-  setBlock(0, FH + 7, bz + 1, 'gold'); setBlock(0, FH + 6, bz + 1, 'gold');     // altar cross
-  setBlock(-1, FH + 7, bz + 1, 'gold'); setBlock(1, FH + 7, bz + 1, 'gold');
-  // a path of white stone leading to the doors
-  for (let z = fz + 1; z <= fz + 6; z++) fill(-1, 1, heightAt(0, z), heightAt(0, z), z, z, 'white');
+  setBlock(0, rcy, fz, 'gold');
+  const gpk = FH + 16;                                                              // crocketed gable
+  for (let y = FH + 13; y <= gpk; y++) { const w = gpk - y; for (let x = -w; x <= w; x++) setBlock(x, y, fz, 'brick'); setBlock(-w - 1, y, fz, 'white'); setBlock(w + 1, y, fz, 'white'); if ((gpk - y) % 2 === 0) { setBlock(-w - 1, y + 1, fz, 'gold'); setBlock(w + 1, y + 1, fz, 'gold'); } }
+  setBlock(0, gpk, fz, 'brick'); setBlock(0, gpk + 2, fz, 'gold'); setBlock(0, gpk + 1, fz, 'gold'); setBlock(-1, gpk + 1, fz, 'gold'); setBlock(1, gpk + 1, fz, 'gold');
+
+  // ===== TWIN TOWERS — stepped buttresses, stone bands, belfries, tall spires, corner pinnacles =====
+  const tower = cx => {
+    fill(cx - 1, cx + 1, FH - 2, twTop, fz - 1, fz + 1, 'brick');
+    for (const by of [FH + 1, FH + 6, FH + 12, FH + 18, twTop]) fill(cx - 1, cx + 1, by, by, fz - 1, fz + 1, 'white'); // string courses
+    for (let y = FH + 3; y <= FH + 16; y += 4) { setBlock(cx, y, fz + 1, 'glassB'); setBlock(cx, y + 1, fz + 1, 'glassB'); setBlock(cx + 1, y, fz, 'glassB'); setBlock(cx - 1, y, fz, 'glassB'); } // lancets
+    for (let y = FH + 19; y <= FH + 23; y++) { setBlock(cx, y, fz + 1, 'slate'); setBlock(cx, y, fz - 1, 'slate'); setBlock(cx + 1, y, fz, 'slate'); setBlock(cx - 1, y, fz, 'slate'); } // belfry louvers
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) pinn(cx + dx, fz + dz, twTop + 1, 3); // corner pinnacles
+    fill(cx - 1, cx + 1, twTop + 1, twTop + 1, fz - 1, fz + 1, 'slate');            // spire base
+    for (let i = 0; i <= 8; i++) { const r = Math.max(0, 1 - Math.floor(i / 3)); fill(cx - r, cx + r, twTop + 2 + i, twTop + 2 + i, fz - r, fz + r, 'slate'); } // tapering spire
+    setBlock(cx, spTop, fz, 'gold'); setBlock(cx, spTop + 1, fz, 'gold'); setBlock(cx - 1, spTop, fz, 'gold'); setBlock(cx + 1, spTop, fz, 'gold'); // crowning cross
+  };
+  tower(-tx); tower(tx);
+
+  // ===== INTERIOR FURNISHINGS =====
+  // choir loft over the entrance, with a row of gilded organ pipes against the front wall
+  fillM(0, ax - 1, FH + 6, FH + 6, fz - 2, fz - 1, 'wood');
+  for (let x = -5; x <= 5; x++) setBlock(x, FH + 7, fz - 2, 'wood');                // loft rail
+  for (let x = -5; x <= 5; x++) for (let y = FH + 7; y <= FH + 7 + (x % 3 === 0 ? 4 : x % 2 === 0 ? 3 : 2); y++) setBlock(x, y, fz - 1, x % 2 ? 'gold' : 'white'); // organ pipes
+  // pews flanking the central marble aisle
+  for (let z = fz - 3; z >= cz + 2; z -= 2) for (const x of [-3, -2, 2, 3]) setBlock(x, FH + 1, z, 'wood');
+  // stations of the cross along the aisle walls
+  for (let z = fz - 2; z >= bz + 1; z -= 4) { setM(ax - 1, FH + 5, z, 'gold'); }
+  // raised sanctuary, communion rail, and the towering gilded REREDOS (the showpiece)
+  fillM(0, nx - 1, FH + 1, FH + 1, bz, cz - 2, 'white');                            // sanctuary predella (one step up)
+  for (const x of [-3, -1, 1, 3]) setBlock(x, FH + 2, cz - 2, 'gold');              // communion rail posts
+  for (let x = -3; x <= 3; x++) if (x < -1 || x > 1) setBlock(x, FH + 2, cz - 2, 'white'); else setBlock(x, FH + 1, cz - 2, 'marble'); // rail w/ centre gate
+  const rz = bz;                                                                    // gilded screen on the apse chord
+  fill(-3, 3, FH + 2, FH + 11, rz, rz, 'gold');
+  for (const x of [-3, -1, 1, 3]) clear(x, x, FH + 5, FH + 8, rz, rz);              // niches
+  for (const x of [-3, -1, 1, 3]) { setBlock(x, FH + 5, rz, 'white'); setBlock(x, FH + 6, rz, 'white'); setBlock(x, FH + 7, rz, 'marble'); } // statues
+  for (const x of [-3, 3]) pinn(x, rz, FH + 12, 3);                                 // flanking pinnacles
+  for (let y = FH + 12; y <= FH + 17; y++) setBlock(0, y, rz, 'gold');              // central spire
+  setBlock(0, FH + 18, rz, 'gold'); setBlock(-1, FH + 16, rz, 'gold'); setBlock(1, FH + 16, rz, 'gold'); // crucifix
+  fill(-2, 2, FH + 2, FH + 2, cz - 4, cz - 3, 'white');                             // free-standing altar predella
+  fill(-1, 1, FH + 2, FH + 3, cz - 4, cz - 4, 'gold'); setBlock(0, FH + 4, cz - 4, 'gold'); // mensa + tabernacle
+  // a sanctuary lamp glowing red near the altar
+  setBlock(3, FH + 8, cz - 3, 'glassR'); setBlock(-3, FH + 8, cz - 3, 'glassR');
+
+  // ===== stone path from the doors out to the world =====
+  for (let z = fz + 7; z <= fz + 10; z++) fill(-1, 1, heightAt(0, z), heightAt(0, z), z, z, 'white');
 }
 buildShrine();
 
@@ -852,12 +912,12 @@ function frame() {
     mv.normalize().multiplyScalar((armorSet.belt ? 6.4 : 5) * dt);
     const feet = hero.position.y, STEP = 1.1;
     const nx = Math.max(-R + .5, Math.min(R - .5, heroX + mv.x));
-    if (surfaceY(nx, heroZ) - feet <= STEP) heroX = nx;
+    const sx = standY(nx, heroZ, feet); if (sx != null && sx - feet <= STEP) heroX = nx;
     const nz = Math.max(-R + .5, Math.min(R - .5, heroZ + mv.z));
-    if (surfaceY(heroX, nz) - feet <= STEP) heroZ = nz;
+    const sz = standY(heroX, nz, feet); if (sz != null && sz - feet <= STEP) heroZ = nz;
     hero.rotation.y = Math.atan2(mv.x, mv.z);
   }
-  const target = surfaceY(heroX, heroZ);
+  let target = standY(heroX, heroZ, hero.position.y); if (target == null) target = surfaceY(heroX, heroZ);
   if (jumping) { vy -= 18 * dt; let y = hero.position.y + vy * dt; if (y <= target) { y = target; jumping = false; vy = 0; } hero.position.set(heroX, y, heroZ); }
   else hero.position.set(heroX, target, heroZ);
   // walk cycle — striding legs, swinging arms, knee/elbow flex, idle breathing, a bouncing step
