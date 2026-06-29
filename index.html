@@ -334,24 +334,26 @@ function fill(x0, x1, y0, y1, z0, z1, type) {
 function clear(x0, x1, y0, y1, z0, z1) {
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) removeBlock(x, y, z);
 }
+// The shrine's collision + grounds are rebuilt fresh on every load (never trusted to old saves), so
+// changing the building can never leave you locked out by stale geometry baked into localStorage.
+function shrineShell() {
+  const FH = 3, fz = -3, bz = -20, HX = 6, colZ = [-5, -8, -11, -14, -17];
+  clear(-14, 14, FH, 42, -26, 3);                                                                    // wipe any earlier shrine + carve the envelope
+  for (let x = -14; x <= 14; x++) for (let z = -26; z <= 3; z++) { setBlock(x, FH - 2, z, 'stone'); setBlock(x, FH - 1, z, 'dirt'); setBlock(x, FH, z, 'grass'); } // level grass churchyard over the WHOLE cleared area (no fall-through gaps)
+  for (let z = bz; z <= fz; z++) for (let y = FH + 1; y <= FH + 6; y++) { setBlock(-HX, y, z, 'invis'); setBlock(HX, y, z, 'invis'); } // side walls
+  for (let x = -HX; x <= HX; x++) for (let y = FH + 1; y <= FH + 6; y++) setBlock(x, y, bz, 'invis');                                 // back wall
+  for (let x = -HX; x <= HX; x++) if (x < -2 || x > 2) for (let y = FH + 1; y <= FH + 6; y++) setBlock(x, y, fz, 'invis');            // front wall + a wide (5-block) door
+  for (const c of colZ) for (const cx of [-5, 5]) for (let y = FH + 1; y <= FH + 4; y++) setBlock(cx, y, c, 'invis');                 // column cores
+  fill(-3, 3, FH + 1, FH + 6, bz + 1, bz + 2, 'invis');                                              // altar mass (stops you at the sanctuary)
+}
 function buildShrine() {
   // The Shrine is built as REAL smooth architecture (not voxels) so it feels like you are there.
-  // A hidden 'invis' voxel shell handles walking/collision; everything you see is a Three.js mesh group.
+  // A hidden 'invis' voxel shell (shrineShell) handles walking/collision; everything you see is a mesh group.
   const FH = 3, fy = FH + 0.5;                 // floor top (the hero stands here)
   const fz = -3, bz = -20;                     // front (door) and back (apse) of the nave
   const HX = 6;                                // interior half-width (wall line)
   const cz = (fz + bz) / 2, depth = fz - bz + 1, colZ = [-5, -8, -11, -14, -17];
-
-  // ---------- invisible collision shell ----------
-  clear(-HX - 2, HX + 2, FH, FH + 26, bz - 8, fz + 4);                       // carve terrain/trees out of the envelope
-  fill(-HX, HX, FH - 2, FH, bz, fz, 'invis');                               // floor slab
-  for (let z = bz; z <= fz; z++) for (let y = FH + 1; y <= FH + 6; y++) { setBlock(-HX, y, z, 'invis'); setBlock(HX, y, z, 'invis'); }
-  for (let x = -HX; x <= HX; x++) for (let y = FH + 1; y <= FH + 6; y++) setBlock(x, y, bz, 'invis');               // back wall
-  for (let x = -HX; x <= HX; x++) if (x < -1 || x > 1) for (let y = FH + 1; y <= FH + 6; y++) setBlock(x, y, fz, 'invis'); // front wall + door gap
-  for (const c of colZ) for (const cx of [-5, 5]) for (let y = FH + 1; y <= FH + 4; y++) setBlock(cx, y, c, 'invis'); // column cores
-  fill(-3, 3, FH + 1, FH + 6, bz + 1, bz + 2, 'invis');                     // altar mass
-  for (let z = fz + 1; z <= fz + 4; z++) fill(-2, 2, FH, FH, z, z, 'invis'); // threshold/steps approach
-  fill(-2, 2, FH - 1, FH - 1, fz + 1, fz + 5, 'invis');
+  shrineShell();
 
   // ---------- smooth materials ----------
   const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: o.r ?? 0.78, metalness: o.m ?? 0, emissive: o.e ?? 0x000000, emissiveIntensity: o.ei ?? 0, transparent: !!o.t, opacity: o.o ?? 1, side: o.ds ? THREE.DoubleSide : THREE.FrontSide });
@@ -367,8 +369,8 @@ function buildShrine() {
   const add = (geo, m, x, y, z, rx, ry, rz) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.rotation.set(rx || 0, ry || 0, rz || 0); me.castShadow = me.receiveShadow = true; S.add(me); return me; };
 
   // ---------- floor + processional carpet ----------
-  add(new THREE.BoxGeometry(2 * HX, 0.5, depth), M.marble, 0, fy - 0.25, cz);
-  add(new THREE.BoxGeometry(2.2, 0.08, depth - 1), mat(0x8a1f2a, { r: .55 }), 0, fy + 0.04, cz);
+  add(new THREE.BoxGeometry(2 * HX, 0.5, depth), M.marble, 0, fy - 0.18, cz);   // floor sits just above the grass
+  add(new THREE.BoxGeometry(2.2, 0.08, depth - 1), mat(0x8a1f2a, { r: .55 }), 0, fy + 0.12, cz);
 
   // ---------- nave columns (two rows): base, shaft, gilded ring + capital ----------
   const shaft = new THREE.CylinderGeometry(0.42, 0.5, 8.6, 14), baseG = new THREE.CylinderGeometry(0.6, 0.74, 0.6, 14),
@@ -887,8 +889,8 @@ let savedTO = 0;
 function flashSaved() { savedEl.style.opacity = 1; clearTimeout(savedTO); savedTO = setTimeout(() => savedEl.style.opacity = 0, 1200); }
 function doSave() {
   try {
-    const w = new Array(world.size * 4); let i = 0;
-    for (const [k, type] of world) { const c = k.split(','); w[i++] = +c[0]; w[i++] = +c[1]; w[i++] = +c[2]; w[i++] = TYPE_IDX[type]; }
+    const w = [];
+    for (const [k, type] of world) { if (T[type].invis) continue; const c = k.split(','); w.push(+c[0], +c[1], +c[2], TYPE_IDX[type]); } // shell rebuilt on load, not saved
     localStorage.setItem(SAVE_KEY(), JSON.stringify({
       v: 1, w, hero: [heroX, heroZ], armor: armorSet, armorN: armor, faith, banished, placed: placedCount, bossDone: bossDefeated,
       quests: saints.map(s => ({ a: s.userData.quest.accepted, d: s.userData.quest.done, b: s.userData.quest.baseline })),
@@ -901,6 +903,7 @@ function doLoad() {
   if (!d || !d.w) return false;
   world.clear(); colTop.clear();
   for (let i = 0; i < d.w.length; i += 4) setBlock(d.w[i], d.w[i + 1], d.w[i + 2], TYPE_LIST[d.w[i + 3]]);
+  shrineShell();          // always rebuild the current shrine, wiping any stale one baked into the save
   remesh();
   heroX = d.hero[0]; heroZ = d.hero[1]; faith = d.faith; banished = d.banished || 0; placedCount = d.placed || 0;
   Object.assign(armorSet, d.armor || {}); armor = d.armorN || 0; bossDefeated = !!d.bossDone;
