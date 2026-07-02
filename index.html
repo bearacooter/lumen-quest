@@ -34,6 +34,18 @@
   #mode b{color:#8fe6ff;}
   #map{position:fixed;top:84px;left:12px;width:116px;height:116px;pointer-events:none;z-index:9;display:none;
     border:2px solid #dcc97a;border-radius:8px;background:rgba(12,13,28,.72);box-shadow:0 4px 14px rgba(0,0,0,.45);}
+  #goal{top:210px;left:12px;width:120px;font-size:7px;line-height:1.8;color:#ffe98a;background:rgba(20,21,43,.75);
+    border:1px solid #dcc97a;border-radius:7px;padding:6px 8px;display:none;}
+  #goal b{color:#8fe6ff;display:block;margin-bottom:3px;}
+  #bossbar{left:50%;transform:translateX(-50%);top:76px;text-align:center;font-size:8px;color:#ff9aa8;display:none;}
+  #bossbar .bar{width:220px;border-color:#d6304a;margin-left:8px;}
+  #bossFill{background:#d6304a;width:100%;}
+  #victory{left:0;right:0;top:26%;text-align:center;opacity:0;transition:opacity 1.2s;}
+  #victory h2{font-size:22px;color:#f4d03f;margin:0 0 12px;text-shadow:0 3px 0 #7a5a00,0 0 22px rgba(244,208,63,.55);}
+  #victory p{font-size:9px;color:#e8f4d0;margin:0 0 10px;line-height:2;}
+  #victory .vc{font-size:7px;color:#9aa0e0;line-height:2;}
+  .startcard .story{margin:0 0 14px;font-size:7px;color:#c9d0ff;line-height:2;}
+  .startcard .story b{color:#f4d03f;}
   #hint{bottom:10px;left:0;right:0;text-align:center;font-size:7px;color:#c9d0ff;line-height:1.9;}
   #msg{left:0;right:0;top:40%;text-align:center;font-size:12px;color:#ffe98a;opacity:0;transition:opacity .35s;}
   #hotbar{bottom:34px;left:0;right:0;text-align:center;font-size:7px;color:#e9e3cf;}
@@ -89,6 +101,9 @@
   </div>
   <div class="ui" id="mode">Mode: <b id="modeTxt">FIGHT</b> &nbsp;(press <b>Tab</b>)</div>
   <canvas id="map" width="116" height="116"></canvas>
+  <div class="ui" id="goal"></div>
+  <div class="ui" id="bossbar"><b>THE GREAT SHADOW</b><span class="bar"><i id="bossFill"></i></span></div>
+  <div class="ui" id="victory"><h2>THE LIGHT HAS WON!</h2><p id="vicSub"></p><p class="vc">&#10022; LUMEN &mdash; Armor of God &#10022;<br>made with love for a brave knight</p></div>
   <div class="ui" id="cross"></div>
   <div class="ui" id="msg"></div>
   <div class="ui" id="hotbar"></div>
@@ -115,6 +130,7 @@
     <div class="startcard">
       <h1>LUMEN</h1>
       <p class="sub">armor of god &mdash; a 3D quest</p>
+      <p class="story">Shadows have crept into the valley. The village needs a hero.<br>Gather the six pieces of the <b>Armor of God</b>, guard the villagers,<br>and let your light shine against the Great Shadow.</p>
       <label for="nameInput">name your hero</label>
       <input id="nameInput" maxlength="14" placeholder="Hero" autocomplete="off" spellcheck="false">
       <button id="startBtn">ENTER THE GARDEN</button>
@@ -184,6 +200,7 @@ function updateDayNight(t) {
 
 // core run-state (declared early so spawners/quests can read it safely)
 let faith = 100, armor = 0, banished = 0, started = false;
+let won = false, victoryT = 0;   // the happy ending — fireworks + credits, then peaceful free play
 const villagers = []; let villagersSafe = 0;
 
 // ---------- gentle audio (WebAudio, no files; starts on first click) ----------
@@ -207,6 +224,31 @@ const sfx = {
   quest() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.18, 'sine', 0.05), i * 110)); },
   boss() { [196, 147].forEach((f, i) => setTimeout(() => blip(f, 0.3, 'sawtooth', 0.05), i * 150)); },
 };
+
+// ---------- gentle background music: a slow hymn-like pad, looping (M toggles) ----------
+let musicOn = true, musicTimer = 0, musicStep = 0;
+const HYMN = [ // soft triads, F major hymn motion — one chord every 2.4s
+  [174.6, 220.0, 261.6], [196.0, 246.9, 293.7], [220.0, 261.6, 329.6], [174.6, 220.0, 261.6],
+  [155.6, 196.0, 233.1], [174.6, 220.0, 261.6], [130.8, 196.0, 261.6], [174.6, 220.0, 261.6],
+];
+function padNote(freq, vol, dur) {
+  if (!audio) return;
+  const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime;
+  o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(audio.destination);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.7); // slow swell
+  g.gain.setValueAtTime(vol, t + dur - 1.0); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  o.start(t); o.stop(t + dur);
+}
+function musicTick(dt) { // driven from the frame loop so it pauses with the tab
+  if (!musicOn || !audio || !started) return;
+  musicTimer -= dt;
+  if (musicTimer > 0) return;
+  musicTimer = 2.4;
+  const ch = HYMN[musicStep % HYMN.length];
+  ch.forEach(f => padNote(f, 0.012, 2.6));
+  if (musicStep % 4 === 3) padNote(ch[2] * 2, 0.008, 2.2);     // a high bell every 4th bar
+  musicStep++;
+}
 
 // ---------- block types (NO ORANGE) ----------
 const T = {
@@ -702,7 +744,7 @@ function grantPiece(id) {
   const p = pickups.find(pp => pp.userData.id === id);
   if (!p || armorSet[id]) return;
   armorSet[id] = true; armor++; p.userData.taken = true; p.userData.attach(p);
-  updHUD(); markDirty(); sfx.pickup();
+  updHUD(); markDirty(); sfx.pickup(); checkVictory();
 }
 makePiece('belt', 'Belt of Truth', 'quick, steady steps', 6, 9,
   g => { g.add(part(0.9, 0.2, 0.5, 0xdcc97a, 0, 0, 0, { e: 0xb8860b, ei: 0.4 })); g.add(part(0.24, 0.24, 0.55, 0xf4d03f, 0, 0, 0, { e: 0xb8860b, ei: 0.6 })); },
@@ -820,9 +862,10 @@ function spawnBoss() {
   g.add(part(0.36, 0.36, 0.16, 0xff5a7a, -0.42, 0.3, 0.96, { e: 0xd6304a, ei: 1.8 }));
   g.add(part(0.36, 0.36, 0.16, 0xff5a7a, 0.42, 0.3, 0.96, { e: 0xd6304a, ei: 1.8 }));
   for (let i = -2; i <= 2; i++) g.add(part(0.18, 0.5, 0.18, 0x120a26, i * 0.4, 1.1, 0, { e: 0x2a0d3a, ei: 0.5 })); // crown of spikes
-  g.position.set(x, surfaceY(x, z) + 1.5, z); g.userData = { hp: 9, x, z, lastHit: 0, yoff: 1.5, boss: true, speed: 1.0, dmg: 16 };
+  g.position.set(x, surfaceY(x, z) + 1.5, z); g.userData = { hp: 9, x, z, lastHit: 0, yoff: 1.5, boss: true, speed: 1.0, dmg: 16, ph: 0 }; // ph needed by the shared bob animation (undefined → NaN → invisible boss)
   scene.add(g); enemies.push(g);
-  showMsg('A GREAT SHADOW rises! Stand firm in the Lord.'); sfx.boss();
+  const bb = document.getElementById('bossbar'); bb.style.display = 'block'; document.getElementById('bossFill').style.width = '100%';
+  showMsg('A GREAT SHADOW rises! Stand firm in the Lord.'); sfx.boss(); updHUD();
 }
 
 // ---------- villagers to protect ----------
@@ -848,6 +891,29 @@ function spawnVillager() {
 }
 for (let i = 0; i < VILLAGE_MAX; i++) spawnVillager();
 
+// ---------- animals: doves circling the spires, sheep grazing by the village ----------
+const doves = [];
+for (let i = 0; i < 3; i++) {
+  const g = new THREE.Group();
+  g.add(part(0.22, 0.16, 0.34, 0xf2f2ea, 0, 0, 0, {}));                       // body
+  g.add(part(0.12, 0.12, 0.12, 0xf2f2ea, 0, 0.08, 0.2, {}));                  // head
+  const lw = part(0.5, 0.04, 0.2, 0xffffff, -0.3, 0.06, 0, {}); g.add(lw);    // wings
+  const rw = part(0.5, 0.04, 0.2, 0xffffff, 0.3, 0.06, 0, {}); g.add(rw);
+  g.userData = { a: i / 3 * Math.PI * 2, r: 9 + i * 1.3, h: 23 + i * 1.5, sp: 0.35 + i * 0.08, lw, rw }; // r ≥ 9 clears the tower spires; above the nave roof
+  scene.add(g); doves.push(g);
+}
+const sheep = [];
+for (let i = 0; i < 3; i++) {
+  const g = new THREE.Group(); g.rotation.order = 'YXZ';
+  g.add(part(0.72, 0.5, 1.0, 0xefeadd, 0, 0.62, 0, {}));                      // woolly body
+  const hd = part(0.3, 0.3, 0.3, 0x3a332c, 0, 0.72, 0.6, {}); g.add(hd);      // head
+  for (const [lx, lz] of [[-0.22, 0.3], [0.22, 0.3], [-0.22, -0.3], [0.22, -0.3]]) g.add(part(0.14, 0.4, 0.14, 0x3a332c, lx, 0.2, lz, {}));
+  const x = [13, 18, 20][i], z = [20, 17, 16][i];   // grassy spots clear of every hut-roof footprint
+  g.position.set(x, surfaceY(x, z), z);
+  g.userData = { x, z, hx: x, hz: z, wx: x, wz: z, pause: 2 + i, walk: 0, t: i * 2.1, hd };
+  scene.add(g); sheep.push(g);
+}
+
 // ---------- particles ----------
 const sparks = [], sparkGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14); // SHARED geometry (no per-spark alloc)
 function burst(pos, cols = [0x8fe6ff, 0xf4d03f, 0xffffff, 0xbdf0a0]) {
@@ -869,6 +935,27 @@ function updHUD() {
   document.getElementById('armorTxt').textContent = 'Armor ' + armor + '/' + ARMOR_TOTAL;
   const vt = document.getElementById('villageTxt'); if (vt) vt.textContent = 'Village: ' + villagersSafe;
   document.getElementById('foeTxt').textContent = 'Shadows banished: ' + banished;
+  updGoal();
+}
+// the quest tracker — the hero always knows the next step
+function updGoal() {
+  const g = document.getElementById('goal'); if (!g) return;
+  g.style.display = started ? 'block' : 'none';
+  let txt;
+  if (won) txt = 'Peace reigns in the valley. Explore, build, and rejoice!';
+  else if (bossAlive) txt = 'Stand firm — banish the GREAT SHADOW!';
+  else if (armor >= ARMOR_TOTAL) txt = 'You wear the full Armor. Face the Great Shadow when it rises!';
+  else {
+    const need = [];
+    if (!armorSet.belt) need.push('find the Belt of Truth');
+    if (!armorSet.shoes) need.push('find the Shoes by the pond');
+    if (!armorSet.shield) need.push('find the Shield of Faith');
+    if (!armorSet.sword) need.push('St. Michael: banish 6 shadows');
+    if (!armorSet.breastplate) need.push('St. Joseph: place 12 blocks');
+    if (!armorSet.helmet) need.push('St. Thérèse: gather 3 pieces');
+    txt = need[0] + (need.length > 1 ? ' · then ' + (need.length - 1) + ' more' : '');
+  }
+  g.innerHTML = '<b>✦ QUEST</b>' + txt + '<br>Armor ' + armor + '/' + ARMOR_TOTAL;
 }
 const BUILD_TYPES = ['grass', 'stone', 'plank', 'brick', 'white', 'glassB', 'gold'];
 let sel = 3;
@@ -884,8 +971,8 @@ function setHint() {
   const ta = document.getElementById('tAct'); if (ta) ta.textContent = mode === 'fight' ? '⚔' : '⛏';
   const tp = document.getElementById('tPlace'); if (tp) tp.style.display = mode === 'build' ? '' : 'none';
   hintEl.innerHTML = mode === 'fight'
-    ? 'WASD move · Space jump · drag look · <b>left-click</b> swing · <b>F</b> light bolt · <b>E</b> talk / read relics · Tab → build'
-    : 'WASD move · 1-7 pick block · <b>left-click</b> break · <b>shift+click</b> place · <b>E</b> talk / read relics · Tab → fight';
+    ? 'WASD move · Space jump · drag look · <b>left-click</b> swing · <b>F</b> light bolt · <b>E</b> talk / read relics · <b>M</b> music · Tab → build'
+    : 'WASD move · 1-7 pick block · <b>left-click</b> break · <b>shift+click</b> place · <b>E</b> talk / read relics · <b>M</b> music · Tab → fight';
   drawHotbar();
 }
 
@@ -924,11 +1011,13 @@ function toggleMode() { mode = mode === 'fight' ? 'build' : 'fight'; setHint(); 
 function actPrimary() { if (mode === 'fight') swingSword(); else editBlock(new THREE.Vector2(0, 0), false); }
 function actPlace() { if (mode === 'build') editBlock(new THREE.Vector2(0, 0), true); }
 addEventListener('keydown', e => {
+  if (e.target && e.target.tagName === 'INPUT') return;   // typing a name must not trigger game keys (M muted music mid-word!)
   keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); doJump(); }
   if (e.code === 'Tab') { e.preventDefault(); toggleMode(); }
   if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < BUILD_TYPES.length) { sel = n; drawHotbar(); } }
   if (e.code === 'KeyE') talkSaint();
+  if (e.code === 'KeyM') { musicOn = !musicOn; showMsg(musicOn ? '♪ music on' : 'music off'); }
   if (e.code === 'KeyF') fireBolt();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -960,13 +1049,24 @@ let swing = 0;
 function disposeObj(o) { o.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) (Array.isArray(c.material) ? c.material : [c.material]).forEach(m => m.dispose()); }); }
 function damageEnemy(en, hit) {
   en.userData.hp -= hit;
+  if (en.userData.boss) { const bf = document.getElementById('bossFill'); if (bf) bf.style.width = Math.max(0, en.userData.hp / 9 * 100) + '%'; }
   if (en.userData.hp <= 0) {
     burst(en.position.clone(), en.userData.boss ? [0xf4d03f, 0xffffff, 0x8fe6ff, 0xbdf0a0] : undefined);
     scene.remove(en); disposeObj(en); enemies.splice(enemies.indexOf(en), 1);
-    if (en.userData.boss) { bossAlive = false; bossDefeated = true; faith = 100; showMsg('The Great Shadow is vanquished! "The light shines in the darkness." (Jn 1:5)'); sfx.quest(); }
+    if (en.userData.boss) { bossAlive = false; bossDefeated = true; faith = 100; document.getElementById('bossbar').style.display = 'none'; showMsg('The Great Shadow is vanquished! "The light shines in the darkness." (Jn 1:5)'); sfx.quest(); checkVictory(); }
     else { banished++; sfx.banish(); }
     updHUD(); markDirty();
   } else { burst(en.position.clone(), [0x8fe6ff, 0xffffff]); sfx.hit(); }
+}
+// the ending: full Armor + Great Shadow banished → fireworks, credits, then peaceful free play
+function checkVictory() {
+  if (won || !bossDefeated || armor < ARMOR_TOTAL) return;
+  won = true; victoryT = 9; markDirty();
+  for (let i = enemies.length - 1; i >= 0; i--) { scene.remove(enemies[i]); disposeObj(enemies[i]); enemies.splice(i, 1); } // peace
+  const v = document.getElementById('victory');
+  document.getElementById('vicSub').textContent = (slotNames[slot] || 'Hero') + ' wears the full Armor of God — the valley is safe. "Be strong in the Lord!" (Eph 6:10)';
+  v.style.opacity = 1; setTimeout(() => { v.style.opacity = 0; }, 12000);
+  sfx.quest(); setTimeout(() => sfx.quest(), 700); updHUD();
 }
 function swingSword() {
   swing = 1; sfx.swing();
@@ -1046,6 +1146,7 @@ function doLoad() {
   Object.assign(armorSet, d.armor || {}); armor = d.armorN || 0; bossDefeated = !!d.bossDone;
   pickups.forEach(p => { if (armorSet[p.userData.id]) { p.userData.taken = true; p.userData.attach(p); } });
   (d.quests || []).forEach((q, i) => { const s = saints[i]; if (!s) return; const qq = s.userData.quest; qq.accepted = q.a; qq.done = q.d; qq.baseline = q.b; if (q.d) s.userData.mark.visible = false; });
+  won = bossDefeated && armor >= ARMOR_TOTAL;   // finished games load straight into peaceful free play (no replayed fireworks)
   updHUD(); return true;
 }
 addEventListener('keydown', e => { if (e.code === 'KeyO') doSave(); });
@@ -1107,13 +1208,16 @@ function frame() {
     if (Math.hypot(heroX - p.userData.x, heroZ - p.userData.z) < 1.5) {
       p.userData.taken = true; armorSet[p.userData.id] = true; armor++; updHUD();
       showMsg(p.userData.name + ' — ' + p.userData.power + '!'); burst(new THREE.Vector3(heroX, hero.position.y + 1, heroZ));
-      p.userData.attach(p); markDirty(); sfx.pickup();
-      if (armor >= ARMOR_TOTAL) setTimeout(() => showMsg('The full Armor of God! "Be strong in the Lord." (Eph 6:10)'), 2300);
+      p.userData.attach(p); markDirty(); sfx.pickup(); checkVictory();
+      if (armor >= ARMOR_TOTAL && !won) setTimeout(() => showMsg('The full Armor of God! "Be strong in the Lord." (Eph 6:10)'), 2300);
     }
   });
   if (armorSet.helmet && faith < 100) { faith = Math.min(100, faith + 4 * dt); updHUD(); }
-  // enemies chase + attack
-  spawnTimer += dt; if (spawnTimer > 5 && enemies.length < 7) { spawnTimer = 0; spawnEnemy(); }
+  musicTick(dt);
+  // victory fireworks — golden bursts raining around the hero
+  if (victoryT > 0) { victoryT -= dt; if (Math.random() < dt * 4) burst(new THREE.Vector3(heroX + (Math.random() - 0.5) * 10, hero.position.y + 3 + Math.random() * 4, heroZ + (Math.random() - 0.5) * 10), [0xf4d03f, 0xffffff, 0x8fe6ff, 0xbdf0a0]); }
+  // enemies chase + attack (peace after victory — no new shadows)
+  spawnTimer += dt; if (!won && spawnTimer > 5 && enemies.length < 7) { spawnTimer = 0; spawnEnemy(); }
   if (!bossAlive && !bossDefeated && banished >= 6) spawnBoss();
   enemies.forEach(en => {
     let tx = heroX, tz = heroZ, vill = null;
@@ -1165,6 +1269,28 @@ function frame() {
     v.position.set(u.x, surfaceY(u.x, u.z) + (moving ? Math.abs(Math.sin(u.walk)) * 0.04 : 0), u.z); // body bobs on each step
   });
   villagerTimer += dt; if (villagerTimer > 16 && villagersSafe < VILLAGE_MAX) { villagerTimer = 0; spawnVillager(); }
+  // doves wheel around the shrine spires, wings beating
+  doves.forEach(d => {
+    const u = d.userData; u.a += dt * u.sp;
+    d.position.set(Math.cos(u.a) * u.r, u.h + Math.sin(u.a * 2.3) * 0.8, -4 + Math.sin(u.a) * u.r);
+    d.rotation.y = -u.a - Math.PI / 2;
+    const flap = Math.sin(t * 9 + u.r) * 0.7; u.lw.rotation.z = flap; u.rw.rotation.z = -flap;
+  });
+  // sheep graze and amble near the village
+  sheep.forEach(s => {
+    const u = s.userData, dx = u.wx - u.x, dz = u.wz - u.z, d = Math.hypot(dx, dz);
+    if (d > 0.3) {
+      const cur = surfaceY(u.x, u.z), sp = 0.7 * dt, nx = u.x + dx / d * sp, nz = u.z + dz / d * sp;
+      if (surfaceY(nx, u.z) - cur <= 1.1) u.x = nx;
+      if (surfaceY(u.x, nz) - cur <= 1.1) u.z = nz;
+      s.rotation.y = Math.atan2(dx, dz); u.walk += dt * 6;
+      u.hd.position.y = 0.72;
+    } else {
+      u.pause -= dt; u.hd.position.y = 0.5 + Math.abs(Math.sin(t * 1.1 + u.t)) * 0.2;   // head down, grazing
+      if (u.pause <= 0) { const a = Math.random() * 6.283, r = 1 + Math.random() * 2.5; u.wx = Math.max(12, Math.min(22, u.hx + Math.cos(a) * r)); u.wz = Math.max(12, Math.min(22, u.hz + Math.sin(a) * r)); u.pause = 3 + Math.random() * 4; }
+    }
+    s.position.set(u.x, surfaceY(u.x, u.z) + Math.abs(Math.sin(u.walk)) * 0.03, u.z);
+  });
   mapT += dt; if (mapT > 0.12) { mapT = 0; drawMap(); }   // refresh radar ~8x/sec (cheap)
   if (faith <= 0) {
     faith = 100; heroX = 0; heroZ = 4; showMsg('Take heart — rise and stand again!');
@@ -1200,7 +1326,8 @@ function beginGame() {
   slotNames[slot] = nm || ('Hero ' + slot); persistNames(); showName();
   initAudio(); started = true;
   document.getElementById('start').style.display = 'none';
-  mapCv.style.display = 'block'; drawMap();
+  mapCv.style.display = 'block'; drawMap(); updHUD();
+  if (!won) setTimeout(() => showMsg('Find the Armor of God — the quest board is on the left!'), 900);
 }
 document.getElementById('startBtn').addEventListener('click', beginGame);
 document.getElementById('nameInput').addEventListener('keydown', e => { if (e.code === 'Enter') beginGame(); });
