@@ -48,9 +48,13 @@
   .startcard .story b{color:#f4d03f;}
   #hint{bottom:10px;left:0;right:0;text-align:center;font-size:7px;color:#c9d0ff;line-height:1.9;}
   #msg{left:0;right:0;top:40%;text-align:center;font-size:12px;color:#ffe98a;opacity:0;transition:opacity .35s;}
-  #hotbar{bottom:34px;left:0;right:0;text-align:center;font-size:7px;color:#e9e3cf;}
-  #hotbar span{display:inline-block;padding:4px 6px;margin:2px;border:1px solid #4a4d8c;border-radius:5px;background:rgba(20,21,43,.7);}
-  #hotbar span.on{border-color:#f4d03f;color:#f4d03f;background:rgba(60,50,10,.6);}
+  /* Minecraft-style hotbar: 9 slots with block swatches, gold frame on the selected one */
+  #hotbar{bottom:46px;left:0;right:0;text-align:center;font-size:6px;color:#e9e3cf;}
+  #hotbar span{display:inline-block;width:30px;height:30px;margin:1px;border:2px solid #3a3c66;border-radius:4px;background:rgba(20,21,43,.78);position:relative;box-sizing:border-box;}
+  #hotbar span i{position:absolute;left:5px;top:4px;width:16px;height:16px;border-radius:2px;box-shadow:inset -3px -3px 0 rgba(0,0,0,.28),inset 3px 3px 0 rgba(255,255,255,.2);}
+  #hotbar span b{position:absolute;right:2px;bottom:0;font-weight:normal;font-size:6px;color:#c9d0ff;}
+  #hotbar span.on{border-color:#f4d03f;background:rgba(60,50,10,.75);}
+  #hotbar em{display:block;font-style:normal;margin-top:3px;color:#ffe98a;}
   .badge{display:inline-block;background:rgba(20,21,43,.7);border:1px solid #dcc97a;border-radius:6px;padding:4px 7px;}
   #saintbox{left:50%;transform:translateX(-50%);bottom:78px;width:min(560px,86vw);text-align:center;
     background:rgba(20,21,43,.86);border:2px solid #dcc97a;border-radius:8px;padding:8px 10px;opacity:0;transition:opacity .3s;}
@@ -99,7 +103,7 @@
     <div id="foeTxt" class="badge">Shadows banished: 0</div>
     <div id="villageTxt" class="badge">Village: 5</div>
   </div>
-  <div class="ui" id="mode">Mode: <b id="modeTxt">FIGHT</b> &nbsp;(press <b>Tab</b>)</div>
+  <div class="ui" id="mode">click the world to look around &middot; <b>Esc</b> frees the mouse</div>
   <canvas id="map" width="116" height="116"></canvas>
   <div class="ui" id="goal"></div>
   <div class="ui" id="bossbar"><b>THE GREAT SHADOW</b><span class="bar"><i id="bossFill"></i></span></div>
@@ -122,7 +126,7 @@
     <button class="tb" id="tBolt">&#10022;</button>
     <button class="tb" id="tPlace">+</button>
     <button class="tb" id="tJump">JMP</button>
-    <button class="tb" id="tMode">&#8646;</button>
+    <button class="tb" id="tView">CAM</button>
     <button class="tb" id="tTalk">&#10022;</button>
   </div>
   <div class="ui" id="hint"></div>
@@ -151,29 +155,36 @@ renderer.shadowMap.enabled = false;        // real-time shadows over ~10k blocks
 const SKY = 0xaad7f0;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(SKY);
-scene.fog = new THREE.Fog(SKY, 38, 86);
+scene.fog = new THREE.Fog(SKY, 45, 110);
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 250);
 camera.position.set(10, 10, 16);
-// smooth custom third-person camera: trails behind the hero, drag to look
-let camYaw = Math.PI, camPitch = 0.42, camDist = 9, lastDragMs = -9999, heroMoving = false, heroTurning = false;
+// Minecraft-style camera: the mouse IS the look direction (pointer lock), the body faces where you look,
+// WASD is relative to the view. V cycles first-person → behind → far. No auto-trail — nothing fights the player.
+let camYaw = Math.PI, camPitch = 0.35, view = 1, heroMoving = false;
+const VIEW_DIST = [0, 6.5, 11];
 const camTarget = new THREE.Vector3(0, 5, 4), _cv = new THREE.Vector3();
 function applyCamera(dt) {
   // safety: never let camera state go non-finite (would otherwise hang/garble)
-  if (!isFinite(camYaw)) camYaw = 0; if (!isFinite(camPitch)) camPitch = 0.6; if (!isFinite(camDist)) camDist = 12;
-  const k = Math.min(1, dt * 8);
+  if (!isFinite(camYaw)) camYaw = 0; if (!isFinite(camPitch)) camPitch = 0.35;
+  camPitch = Math.max(-1.3, Math.min(1.35, camPitch));
   _cv.set(heroX, hero.position.y + 1.6, heroZ);
-  camTarget.lerp(_cv, k);                                  // smooth target (irons out stair-steps)
-  if ((heroMoving || heroTurning) && performance.now() - lastDragMs > 1100) { // auto-trail behind the hero
-    const dy = hero.rotation.y - camYaw, d = Math.atan2(Math.sin(dy), Math.cos(dy)); // loop-free wrap to [-pi,pi]
-    camYaw += d * Math.min(1, dt * 3);
+  camTarget.lerp(_cv, Math.min(1, dt * 10));               // smooth target (irons out stair-steps)
+  if (view === 0) {                                        // first person: through the hero's eyes
+    hero.visible = false;
+    const ey = hero.position.y + 2.05, cp = Math.cos(camPitch);
+    camera.position.set(heroX, ey, heroZ);
+    camera.lookAt(heroX + Math.sin(camYaw) * cp, ey - Math.sin(camPitch), heroZ + Math.cos(camYaw) * cp);
+    return;
   }
-  const hor = camDist * Math.cos(camPitch), ver = camDist * Math.sin(camPitch);
+  hero.visible = true;
+  const pitch = Math.max(-0.12, camPitch), camDist = VIEW_DIST[view];
+  const hor = camDist * Math.cos(pitch), ver = camDist * Math.sin(pitch);
   let cx = camTarget.x - Math.sin(camYaw) * hor, cy = camTarget.y + ver, cz = camTarget.z - Math.cos(camYaw) * hor;
   // collision awareness: never sit inside a wall/hill — march out from the hero, stop before the first solid voxel
   const ox = cx - camTarget.x, oy = cy - camTarget.y, oz = cz - camTarget.z, len = Math.hypot(ox, oy, oz) || 1, steps = Math.ceil(len / 0.5);
   for (let i = 1; i <= steps; i++) {
     const f = i / steps, tt = world.get(K(Math.round(camTarget.x + ox * f), Math.round(camTarget.y + oy * f), Math.round(camTarget.z + oz * f)));
-    if (tt && !T[tt].water) { const g = Math.max(0.18, (i - 1) / steps - 0.06); cx = camTarget.x + ox * g; cy = camTarget.y + oy * g; cz = camTarget.z + oz * g; break; }
+    if (tt && solidT(tt)) { const g = Math.max(0.18, (i - 1) / steps - 0.06); cx = camTarget.x + ox * g; cy = camTarget.y + oy * g; cz = camTarget.z + oz * g; break; }
   }
   camera.position.set(cx, cy, cz);
   camera.lookAt(camTarget);
@@ -265,7 +276,12 @@ const T = {
   azure: { c: 0x243a86, e: 0x101a45, ei: 0.18 }, // painted vault — deep starry blue
   glassP: { c: 0x7a4fa0, glass: true }, glassY: { c: 0xd8c24a, glass: true }, // purple + gold stained glass
   invis: { c: 0x000000, invis: true },     // solid for footing/camera, never drawn (collision shell for smooth meshes)
+  sand: { c: 0xd9cf9a },                    // pale shore sand (not orange)
+  // "soft" blocks: drawn small, walk straight through them, break them for fun
+  flowerR: { c: 0xd6304a, soft: true }, flowerY: { c: 0xf4d03f, soft: true }, flowerB: { c: 0x8fb4e8, soft: true },
+  tgrass: { c: 0x4f9a3c, soft: true, tall: true },
 };
+const solidT = t => !(T[t].water || T[t].soft);   // does this block type carry weight / block movement?
 const box = new THREE.BoxGeometry(1, 1, 1);
 // tiny procedural texture so blocks read as material, not flat colour
 function makeTex(hex) {
@@ -279,7 +295,7 @@ function makeTex(hex) {
 }
 const matOf = {};
 for (const k in T) {
-  const t = T[k], plain = t.glass || t.water || t.e; // glass/water/gilded stay pure
+  const t = T[k], plain = t.glass || t.water || t.e || t.soft; // glass/water/gilded/flowers stay pure
   matOf[k] = new THREE.MeshStandardMaterial({
     color: plain ? t.c : 0xffffff, map: plain ? null : makeTex(t.c),
     roughness: t.glass ? 0.2 : 0.95, metalness: 0,
@@ -295,14 +311,14 @@ const K = (x, y, z) => x + ',' + y + ',' + z;
 const XZ = (x, z) => x + ',' + z;
 function setBlock(x, y, z, type) {
   world.set(K(x, y, z), type);
-  if (!T[type].water) { const c = colTop.get(XZ(x, z)); if (c == null || y > c) colTop.set(XZ(x, z), y); }
+  if (solidT(type)) { const c = colTop.get(XZ(x, z)); if (c == null || y > c) colTop.set(XZ(x, z), y); }
 }
 function removeBlock(x, y, z) {
   const had = world.get(K(x, y, z)); if (!had) return;
   world.delete(K(x, y, z));
-  if (!T[had].water && colTop.get(XZ(x, z)) === y) {
+  if (solidT(had) && colTop.get(XZ(x, z)) === y) {
     let ny = null;
-    for (let yy = y - 1; yy >= -1; yy--) { const t = world.get(K(x, yy, z)); if (t && !T[t].water) { ny = yy; break; } }
+    for (let yy = y - 1; yy >= -1; yy--) { const t = world.get(K(x, yy, z)); if (t && solidT(t)) { ny = yy; break; } }
     if (ny == null) colTop.delete(XZ(x, z)); else colTop.set(XZ(x, z), ny);
   }
 }
@@ -312,7 +328,7 @@ function surfaceY(x, z) { const c = colTop.get(XZ(Math.round(x), Math.round(z)))
 function standY(x, z, fromY) {
   const xi = Math.round(x), zi = Math.round(z), top = colTop.get(XZ(xi, zi));
   if (top == null) return 0;
-  const solid = y => { const t = world.get(K(xi, y, zi)); return !!(t && !T[t].water); };
+  const solid = y => { const t = world.get(K(xi, y, zi)); return !!(t && solidT(t)); };
   for (let y = Math.min(top, Math.floor(fromY + 1.1)); y >= -1; y--) {
     if (solid(y)) return (!solid(y + 1) && !solid(y + 2)) ? y + 0.5 : null; // floor w/ headroom, else a wall
   }
@@ -320,20 +336,31 @@ function standY(x, z, fromY) {
 }
 
 // ---------- meshing (rebuild instanced meshes on edit) ----------
-const meshOf = {}, posOf = {};
-function remesh() {
+const meshOf = {};
+const NB = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const opaqueT = t => !(T[t].glass || T[t].water || T[t].soft || T[t].invis);
+function remesh() {   // ponytail: full rebuild on every edit (~20ms); chunk it if editing ever hitches
   const groups = {};
-  for (const [key, type] of world) { (groups[type] || (groups[type] = [])).push(key.split(',').map(Number)); }
-  for (const k in meshOf) { scene.remove(meshOf[k]); meshOf[k].dispose(); delete meshOf[k]; delete posOf[k]; }
+  for (const [key, type] of world) {
+    if (T[type].invis) continue;                 // collision-only blocks are never rendered
+    const p = key.split(',').map(Number);
+    if (opaqueT(type)) {                         // skip blocks buried on all six sides — most of the ground
+      let hidden = true;
+      for (const n of NB) { const t = world.get(K(p[0] + n[0], p[1] + n[1], p[2] + n[2])); if (!t || !opaqueT(t)) { hidden = false; break; } }
+      if (hidden) continue;
+    }
+    (groups[type] || (groups[type] = [])).push(p);
+  }
+  for (const k in meshOf) { scene.remove(meshOf[k]); meshOf[k].dispose(); delete meshOf[k]; }
   const m = new THREE.Matrix4();
   for (const type in groups) {
-    if (T[type].invis) continue;                 // collision-only blocks are never rendered
-    const positions = groups[type]; posOf[type] = positions;
+    const positions = groups[type];
     const mesh = new THREE.InstancedMesh(box, matOf[type], positions.length);
-    mesh.castShadow = !T[type].water && !T[type].glass; mesh.receiveShadow = true;
-    const jit = !(T[type].glass || T[type].water || T[type].e), col = new THREE.Color();
+    const jit = !(T[type].glass || T[type].water || T[type].e), col = new THREE.Color(), soft = T[type].soft, tall = T[type].tall;
     positions.forEach((p, i) => {
-      m.makeTranslation(p[0], p[1], p[2]); mesh.setMatrixAt(i, m);
+      if (soft) { m.makeScale(tall ? 0.55 : 0.3, tall ? 0.75 : 0.6, tall ? 0.55 : 0.3); m.setPosition(p[0], p[1] - (tall ? 0.12 : 0.2), p[2]); }
+      else m.makeTranslation(p[0], p[1], p[2]);
+      mesh.setMatrixAt(i, m);
       if (jit) { const h = ((p[0] * 73856093) ^ (p[1] * 19349663) ^ (p[2] * 83492791)) >>> 0; const s = 0.86 + (h % 1000) / 1000 * 0.28; mesh.setColorAt(i, col.setRGB(s, s, s)); }
     });
     mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -342,15 +369,13 @@ function remesh() {
 }
 
 // ---------- terrain ----------
-const R = 24, POND = { x: -15, z: 13, r: 5 };
+const R = 32, POND = { x: -15, z: 13, r: 5 };
 function heightAt(x, z) {
-  const v = 2 + 1.3 * Math.sin(x * 0.32) + 1.2 * Math.cos(z * 0.3) + 0.9 * Math.sin((x + z) * 0.2) + 1.1 * Math.cos(x * 0.12 + z * 0.15);
-  return Math.max(2, Math.min(6, Math.round(v)));
-}
-for (let x = -R; x <= R; x++) for (let z = -R; z <= R; z++) {
-  if (Math.hypot(x - POND.x, z - POND.z) < POND.r) { setBlock(x, 0, z, 'stone'); setBlock(x, 1, z, 'stone'); setBlock(x, 2, z, 'water'); continue; }
-  const h = heightAt(x, z);
-  setBlock(x, h, z, 'grass'); setBlock(x, h - 1, z, 'dirt'); setBlock(x, h - 2, z, 'stone');
+  let v = 3.5 + 2.2 * Math.sin(x * 0.19) + 2.0 * Math.cos(z * 0.17) + 1.2 * Math.sin((x + z) * 0.11) + 1.4 * Math.cos(x * 0.07 + z * 0.09);
+  // flat, gentle ground around the shrine, the village and the pond; rolling hills beyond
+  const flat = (cx, cz, base, r0, r1, sx) => { const d = Math.hypot((x - cx) * (sx || 1), z - cz); if (d < r1) v = base + (v - base) * Math.max(0, (d - r0) / (r1 - r0)); };
+  flat(0, -8, 3, 13, 21, 0.8); flat(17, 12, 4, 7, 13); flat(POND.x, POND.z, 3, POND.r + 2, POND.r + 8);
+  return Math.max(2, Math.min(9, Math.round(v)));
 }
 function plantTree(x, z) {
   const base = heightAt(x, z) + 1; for (let i = 0; i < 3; i++) setBlock(x, base + i, z, 'trunk');
@@ -358,14 +383,6 @@ function plantTree(x, z) {
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) setBlock(x + dx, top - 1, z + dz, 'leaf');
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (Math.abs(dx) + Math.abs(dz) < 2) setBlock(x + dx, top, z + dz, 'leaf');
   setBlock(x, top + 1, z, 'leaf');
-}
-for (let i = 0; i < 34; i++) {
-  const x = Math.round((Math.random() * 2 - 1) * (R - 3)), z = Math.round((Math.random() * 2 - 1) * (R - 3));
-  if (Math.hypot(x - POND.x, z - POND.z) < POND.r + 2) continue;
-  if (z < 0 && Math.abs(x) < 11) continue;        // keep the shrine clear
-  if (Math.abs(x) < 4 && Math.abs(z - 4) < 4) continue; // keep spawn clear
-  if (x > 11 && x < 24 && z > 4 && z < 18) continue;    // keep the village clear
-  plantTree(x, z);
 }
 
 // ---------- the Shrine of St. Stanislaus (accurate-ish voxel build) ----------
@@ -392,7 +409,7 @@ function shrineShell() {
   for (const c of colZ) for (const cx of [-5, 5]) for (let y = FH + 1; y <= FH + 4; y++) setBlock(cx, y, c, 'invis');                 // column cores
   fill(-3, 3, FH + 1, FH + 6, bz + 1, bz + 2, 'invis');                                              // altar mass (stops you at the sanctuary)
   fill(6, 8, FH + 1, FH + 26, -4, -2, 'invis'); fill(-8, -6, FH + 1, FH + 26, -4, -2, 'invis');      // twin-tower footprints (full height)
-  fill(-4, -4, FH + 1, FH + 3, -13, -13, 'invis');                                                   // pulpit drum
+  fill(4, 4, FH + 1, FH + 3, -13, -13, 'invis');                                                     // pulpit drum
   fill(4, 5, FH + 1, FH + 3, -17, -16, 'invis'); fill(-5, -4, FH + 1, FH + 3, -17, -16, 'invis');    // side-altar mensas
 }
 function buildShrine() {
@@ -404,7 +421,6 @@ function buildShrine() {
   const fz = -3, bz = -20;                     // front (door) and back (apse) of the nave
   const HX = 6;                                // interior half-width (wall line)
   const cz = (fz + bz) / 2, depth = fz - bz + 1, colZ = [-5, -8, -11, -14, -17];
-  shrineShell();
 
   // ---------- tiny painterly canvas textures (generated once) ----------
   const tex = draw => { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d'); draw(g); const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; };
@@ -436,6 +452,18 @@ function buildShrine() {
     g.fillStyle = 'rgba(196,150,70,.6)';
     for (let x = 8; x < 64; x += 16) for (let y = 8; y < 64; y += 16) g.fillRect(x - 1, y - 1, 2, 2);
   });
+  const tileT = tex(g => {                                          // tan floor tile with grout (photo: the aisle is tile, not carpet)
+    g.fillStyle = '#d6c4a0'; g.fillRect(0, 0, 64, 64);
+    for (let x = 0; x < 64; x += 16) for (let y = 0; y < 64; y += 16) { g.fillStyle = (x + y) % 32 ? '#cdb994' : '#dcc9a6'; g.fillRect(x + 1, y + 1, 14, 14); }
+  });
+  const honeyT = tex(g => {                                         // honey-gold carved oak (reredos, pulpit, side altars)
+    g.fillStyle = '#7f5a34'; g.fillRect(0, 0, 64, 64);
+    for (let i = 0; i < 40; i++) {
+      g.strokeStyle = 'rgba(' + (i % 2 ? '70,44,20' : '150,110,60') + ',' + (0.25 + Math.random() * 0.3) + ')';
+      g.lineWidth = 0.5 + Math.random(); g.beginPath();
+      const x = Math.random() * 64; g.moveTo(x, 0); g.bezierCurveTo(x + 4, 20, x - 4, 44, x + 2, 64); g.stroke();
+    }
+  });
 
   // ---------- materials ----------
   const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: o.r ?? 0.8, metalness: o.m ?? 0, map: o.map || null, emissive: o.e ?? 0x000000, emissiveIntensity: o.ei ?? 0, transparent: !!o.t, opacity: o.o ?? 1, side: o.ds ? THREE.DoubleSide : THREE.FrontSide });
@@ -443,7 +471,9 @@ function buildShrine() {
     plaster: mat(0xf2ead6, { r: .9, e: 0xbfae8a, ei: .14 }),                       // warm cream, faintly self-lit
     fauxM: mat(0xffffff, { map: marbleT, r: .42, m: .06, e: 0x8a7350, ei: .1 }),   // caramel-veined scagliola
     oak: mat(0xffffff, { map: oakT, r: .74, e: 0x2a1708, ei: .12 }),               // dark carved oak
-    carpet: mat(0xffffff, { map: carpT, r: .95 }), wfloor: mat(0x7a5230, { r: .85 }),
+    carpet: mat(0xffffff, { map: carpT, r: .95 }), tile: mat(0xffffff, { map: tileT, r: .6 }),
+    honey: mat(0xffffff, { map: honeyT, r: .7, e: 0x3a2610, ei: .12 }),           // lighter carved wood (photo: reredos glows honey, pews are darker)
+    blueV: mat(0xa9c6e6, { r: .9, e: 0x3a5a8a, ei: .18 }),                         // pale sky-blue vault panels between the gold ribs
     gold: mat(0xe8bf56, { r: .32, m: .6, e: 0x8a6210, ei: .4 }), brass: mat(0xb8923f, { r: .4, m: .5, e: 0x6a4a10, ei: .3 }),
     brick: mat(0x9c4a3e, { r: .95 }), stone: mat(0xd9d1c0, { r: .92 }), slate: mat(0x444c63, { r: .8 }),
     dark: mat(0x17100a, { r: 1 }), skin: mat(0xe7cdb0, { r: .8 }),
@@ -458,25 +488,29 @@ function buildShrine() {
   const add = (geo, m, x, y, z, rx, ry, rz) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.rotation.set(rx || 0, ry || 0, rz || 0); me.castShadow = me.receiveShadow = true; S.add(me); return me; };
 
   // ---------- floor: warm wood under the pews, red carpet up the aisle + sanctuary ----------
-  add(new THREE.BoxGeometry(2 * HX, 0.5, depth), M.wfloor, 0, fy - 0.18, cz);
-  add(new THREE.BoxGeometry(2.4, 0.1, depth - 1), M.carpet, 0, fy + 0.12, cz - 0.5);
+  add(new THREE.BoxGeometry(2 * HX, 0.5, depth), M.tile, 0, fy - 0.18, cz);            // tan tile throughout; red carpet only in the sanctuary
   add(new THREE.BoxGeometry(2 * HX - 1.4, 0.16, 4.6), M.carpet, 0, fy + 0.16, bz + 3.4);   // raised sanctuary carpet
   add(new THREE.BoxGeometry(5.4, 0.12, 0.9), M.carpet, 0, fy + 0.1, bz + 6.1);             // step before the rail
 
   // ---------- nave arcade: faux-marble shafts, gold-leaf capitals, pointed arches, medallions ----------
   const shaft = new THREE.CylinderGeometry(0.42, 0.52, 8.4, 14), baseG = new THREE.CylinderGeometry(0.62, 0.78, 0.5, 14),
     neckG = new THREE.CylinderGeometry(0.5, 0.44, 0.35, 14), capG = new THREE.BoxGeometry(1.15, 0.5, 1.15);
-  for (const c of colZ) for (const cx of [-5, 5]) {
+  const thinG = new THREE.CylinderGeometry(0.13, 0.15, 8.2, 8);
+  for (const c of colZ) for (const cx of [-5, 5]) {                                       // clustered piers: a core shaft ringed by four slender shafts
     add(baseG, M.stone, cx, fy + 0.25, c); add(shaft, M.fauxM, cx, fy + 4.4, c);
+    for (const [dx, dz] of [[0.4, 0], [-0.4, 0], [0, 0.4], [0, -0.4]]) add(thinG, M.fauxM, cx + dx, fy + 4.3, c + dz);
     add(neckG, M.gold, cx, fy + 8.35, c); add(capG, M.gold, cx, fy + 8.75, c);
   }
-  const archG = new THREE.BoxGeometry(0.3, 2.15, 0.55);
+  // true pointed Gothic arches: two circular arcs, each centred on the opposite springing point
+  const bay = colZ[0] - colZ[1], arcG = new THREE.TorusGeometry(bay, 0.14, 8, 14, Math.PI / 3);
   for (const cx of [-5, 5]) for (let i = 0; i < colZ.length - 1; i++) {
-    const zm = (colZ[i] + colZ[i + 1]) / 2;
-    add(archG, M.plaster, cx, fy + 9.6, zm + 0.78, -0.5);                                  // pointed-arch halves
-    add(archG, M.plaster, cx, fy + 9.6, zm - 0.78, 0.5);
-    add(new THREE.CylinderGeometry(0.34, 0.34, 0.1, 12), M.gold, cx, fy + 9.2, zm, 0, 0, Math.PI / 2); // spandrel medallion (disc faces the nave)
+    const zm = (colZ[i] + colZ[i + 1]) / 2, ry = Math.PI / 2;
+    const ax = cx * 0.91;                                                                  // stand proud of the wall, under the vault's spring
+    add(arcG, M.plaster, ax, fy + 8.0, colZ[i + 1], 0, -ry, 0);                            // arc rising from the near pier...
+    add(arcG, M.plaster, ax, fy + 8.0, colZ[i], 0, -ry, Math.PI * 2 / 3);                  // ...and from the far pier, meeting at the point
+    add(new THREE.CylinderGeometry(0.34, 0.34, 0.1, 12), M.gold, ax, fy + 9.4, zm, 0, 0, Math.PI / 2); // medallion under the point (disc faces the nave)
   }
+  for (const sgn of [-1, 1]) add(new THREE.BoxGeometry(0.06, 0.5, depth), M.gold, sgn * (HX - 0.42), fy + 2.9, cz); // gold stencil band along the aisle walls
   for (const cx of [-5, 5]) add(new THREE.BoxGeometry(0.35, 2.4, depth), M.plaster, cx, fy + 10.65, cz); // spandrel band to the vault
   for (const sgn of [-1, 1]) add(new THREE.BoxGeometry(1.5, 0.18, depth), M.plaster, sgn * 5.55, fy + 8.95, cz); // flat aisle ceilings
 
@@ -502,8 +536,20 @@ function buildShrine() {
   const segN = 9, vr = 5, vyc = fy + 8.6, chord = 2 * vr * Math.sin(Math.PI / (2 * segN));
   for (let i = 0; i < segN; i++) {
     const am = Math.PI * (i + 0.5) / segN, x = vr * Math.cos(am), y = vyc + vr * Math.sin(am);
-    add(new THREE.BoxGeometry(chord + 0.05, 0.24, depth), M.plaster, x, y, cz, 0, 0, am + Math.PI / 2);
+    add(new THREE.BoxGeometry(chord + 0.05, 0.24, depth), M.blueV, x, y, cz, 0, 0, am + Math.PI / 2);   // pale blue panels (photo)
   }
+  // diagonal ribs: a gold fan crossing each bay from pier to pier over the vault (short straight segments along the arc)
+  const ribG = new THREE.BoxGeometry(0.16, 0.16, 1);
+  const ribPath = (z0, z1) => {
+    let px = vr, py = vyc, pz = z0;
+    for (let i = 1; i <= 10; i++) {
+      const am = Math.PI * i / 10, x = vr * Math.cos(am), y = vyc + vr * Math.sin(am) - 0.06, z = z0 + (z1 - z0) * i / 10;
+      const m = new THREE.Mesh(ribG, M.gold); m.position.set((px + x) / 2, (py + y) / 2, (pz + z) / 2);
+      m.lookAt(x, y, z); m.scale.z = Math.hypot(x - px, y - py, z - pz) + 0.05; S.add(m);
+      px = x; py = y; pz = z;
+    }
+  };
+  for (let i = 0; i < colZ.length - 1; i++) { ribPath(colZ[i], colZ[i + 1]); ribPath(colZ[i + 1], colZ[i]); }
   for (const rz of [...colZ, fz - 0.4, bz + 0.4]) for (let i = 0; i < segN; i++) {
     const am = Math.PI * (i + 0.5) / segN, x = vr * Math.cos(am), y = vyc + vr * Math.sin(am);
     add(new THREE.BoxGeometry(chord * 0.6, 0.3, 0.22), M.gold, x, y - 0.06, rz, 0, 0, am + Math.PI / 2);
@@ -512,11 +558,13 @@ function buildShrine() {
   for (const rz of colZ) add(new THREE.OctahedronGeometry(0.26), M.gold, 0, vyc + vr - 0.1, rz);
 
   // ---------- brass lanterns hung on chains down the nave ----------
-  const chainG = new THREE.CylinderGeometry(0.025, 0.025, 5.6, 6), lantG = new THREE.CylinderGeometry(0.24, 0.3, 0.6, 8), lidG = new THREE.ConeGeometry(0.34, 0.4, 8);
+  // big brass HEXAGONAL lanterns with glowing cream glass, hung low on long chains (photo)
+  const chainG = new THREE.CylinderGeometry(0.03, 0.03, 6.2, 6), lantG = new THREE.CylinderGeometry(0.3, 0.36, 0.9, 6), lidG = new THREE.ConeGeometry(0.48, 0.45, 6);
+  const glassL = mat(0xf7e9c6, { e: 0xffd890, ei: 0.9 }), ringG = new THREE.TorusGeometry(0.34, 0.04, 6, 6);
   for (const z of [-6.5, -11, -15.5]) for (const sgn of [-1, 1]) {
-    add(chainG, M.dark, sgn * 2.5, fy + 10.1, z);
-    add(lidG, M.brass, sgn * 2.5, fy + 7.35, z); add(lantG, M.brass, sgn * 2.5, fy + 6.9, z);
-    add(new THREE.SphereGeometry(0.16, 8, 8), mat(0xffd88a, { e: 0xffb84a, ei: 1.6 }), sgn * 2.5, fy + 6.85, z);
+    add(chainG, M.dark, sgn * 3.2, fy + 10.3, z);
+    add(lidG, M.brass, sgn * 3.2, fy + 7.3, z); add(lantG, glassL, sgn * 3.2, fy + 6.65, z);
+    add(ringG, M.brass, sgn * 3.2, fy + 6.2, z, Math.PI / 2); add(ringG, M.brass, sgn * 3.2, fy + 7.05, z, Math.PI / 2);
   }
 
   // ---------- red-brown oak pews with end panels, wide centre aisle ----------
@@ -528,17 +576,18 @@ function buildShrine() {
   }
 
   // ---------- low oak communion rail on gilded posts, central gate ----------
-  for (const sgn of [-1, 1]) {
-    add(new THREE.BoxGeometry(2.6, 0.14, 0.22), M.oak, sgn * 2.2, fy + 0.95, bz + 5.4);
+  for (const sgn of [-1, 1]) {                                                             // white marble rail, gold balusters (photo)
+    add(new THREE.BoxGeometry(2.6, 0.14, 0.22), M.fauxM, sgn * 2.2, fy + 0.95, bz + 5.4);
     for (const dx of [1.1, 2.2, 3.3]) add(new THREE.BoxGeometry(0.12, 0.85, 0.16), M.gold, sgn * dx, fy + 0.5, bz + 5.4);
   }
+  M.oak = M.honey;   // ponytail: everything carved from here on (pulpit, reredos, side altars, loft) is honey-toned like the photo; the pews above stay dark
 
-  // ---------- carved oak pulpit with sounding-board canopy (gospel side) ----------
-  add(new THREE.CylinderGeometry(0.3, 0.42, 1, 8), M.oak, -4.2, fy + 0.5, -13.3);
-  add(new THREE.CylinderGeometry(0.78, 0.55, 1.15, 8), M.oak, -4.2, fy + 1.55, -13.3);
-  add(new THREE.TorusGeometry(0.72, 0.07, 8, 16), M.gold, -4.2, fy + 2.05, -13.3, Math.PI / 2);
-  add(new THREE.ConeGeometry(1, 0.85, 8), M.oak, -4.2, fy + 3.6, -13.3);
-  add(new THREE.ConeGeometry(0.16, 0.5, 6), M.gold, -4.2, fy + 4.2, -13.3);
+  // ---------- carved pulpit with sounding-board canopy (epistle side, as in the photo) ----------
+  add(new THREE.CylinderGeometry(0.3, 0.42, 1, 8), M.oak, 4.2, fy + 0.5, -13.3);
+  add(new THREE.CylinderGeometry(0.78, 0.55, 1.15, 8), M.oak, 4.2, fy + 1.55, -13.3);
+  add(new THREE.TorusGeometry(0.72, 0.07, 8, 16), M.gold, 4.2, fy + 2.05, -13.3, Math.PI / 2);
+  add(new THREE.ConeGeometry(1, 0.85, 8), M.oak, 4.2, fy + 3.6, -13.3);
+  add(new THREE.ConeGeometry(0.16, 0.5, 6), M.gold, 4.2, fy + 4.2, -13.3);
 
   // ---------- painted statues of the saints on marble pedestals along the aisles ----------
   const saint = (x, z, robe, inner) => {
@@ -551,6 +600,17 @@ function buildShrine() {
   saint(-4.4, -6, M.rBlue); saint(4.4, -6, M.rGold, M.rGreen);
   saint(-4.4, -11.5, M.rWhite, M.rGold); saint(4.4, -11.5, M.rRed);
   saint(-4.4, -15, M.rGreen, M.rWhite); saint(4.4, -15, M.rViolet, M.rGold);
+  const pierSaint = (x, z, robe, inner) => {                       // statues on carved corbels high on the piers, under little canopies (photo)
+    const nave = x < 0 ? 0.12 : -0.12;
+    add(new THREE.ConeGeometry(0.42, 0.7, 6), M.honey, x, fy + 3.0, z, Math.PI);   // corbel (point down)
+    add(new THREE.CylinderGeometry(0.24, 0.36, 1.4, 10), robe, x, fy + 4.1, z);
+    add(new THREE.CylinderGeometry(0.12, 0.18, 0.7, 8), inner, x + nave, fy + 4.0, z);
+    add(new THREE.SphereGeometry(0.2, 12, 10), M.skin, x, fy + 5.0, z);
+    add(new THREE.TorusGeometry(0.24, 0.04, 8, 16), M.gold, x, fy + 5.25, z, Math.PI / 2);
+    add(new THREE.ConeGeometry(0.5, 0.9, 6), M.honey, x, fy + 5.95, z);            // canopy
+  };
+  pierSaint(-4.3, colZ[1], M.rRed, M.rGold); pierSaint(4.3, colZ[1], M.rBlue, M.rWhite);
+  pierSaint(-4.3, colZ[3], M.rViolet, M.rWhite); pierSaint(4.3, colZ[3], M.rGreen, M.rGold);
 
   // ---------- THE GREAT REREDOS — dark carved oak, painted saints in canopied niches ----------
   const az = bz + 1.4;
@@ -687,12 +747,41 @@ function hut(cx, cz, w, d) {
   for (let x = cx - w - 1; x <= cx + w + 1; x++) for (let z = cz - d - 1; z <= cz + d + 1; z++) setBlock(x, fy + 4, z, 'slate'); // roof
   for (let x = cx - w; x <= cx + w; x++) setBlock(x, fy + 5, cz, 'slate'); // ridge
 }
-hut(16, 8, 2, 2); hut(21, 13, 2, 1); hut(15, 16, 1, 2);
 
-// keep the spawn clear of trees so you never start stuck
-for (let x = -2; x <= 2; x++) for (let z = 2; z <= 6; z++) for (let y = 2; y <= 10; y++) { const tt = world.get(K(x, y, z)); if (tt === 'leaf' || tt === 'trunk') removeBlock(x, y, z); }
-
-remesh();
+// ---------- world generation: seeded, so a save is just the seed + the player's edits (tiny + fast) ----------
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+let seed = 0, rng = Math.random;
+const edits = new Map();   // "x,y,z" -> type | null: the player's changes, replayed on top of the generated world
+function genWorld(s) {
+  seed = s; rng = mulberry32(s); world.clear(); colTop.clear(); edits.clear();
+  for (let x = -R; x <= R; x++) for (let z = -R; z <= R; z++) {
+    const dp = Math.hypot(x - POND.x, z - POND.z);
+    if (dp < POND.r) { setBlock(x, 0, z, 'stone'); setBlock(x, 1, z, 'stone'); setBlock(x, 2, z, 'water'); continue; }
+    const h = heightAt(x, z);
+    for (let y = 0; y <= h; y++) setBlock(x, y, z, y === h ? (dp < POND.r + 2 ? 'sand' : 'grass') : y >= h - 2 ? 'dirt' : 'stone');
+  }
+  shrineShell();
+  const open = (x, z) => !(Math.hypot(x - POND.x, z - POND.z) < POND.r + 2 || (z < 4 && Math.abs(x) < 15) || (Math.abs(x) < 4 && Math.abs(z - 4) < 4) || (x > 11 && x < 24 && z > 4 && z < 18)); // not pond / churchyard / spawn / village
+  for (let i = 0; i < 110; i++) { const x = Math.round((rng() * 2 - 1) * (R - 3)), z = Math.round((rng() * 2 - 1) * (R - 3)); if (open(x, z)) plantTree(x, z); }
+  hut(16, 8, 2, 2); hut(21, 13, 2, 1); hut(15, 16, 1, 2);
+  const FL = ['flowerR', 'flowerY', 'flowerB', 'tgrass', 'tgrass', 'tgrass'];
+  for (let i = 0; i < 700; i++) {   // flowers + tall grass on open lawn (never inside the shrine)
+    const x = Math.round((rng() * 2 - 1) * R), z = Math.round((rng() * 2 - 1) * R), top = colTop.get(XZ(x, z));
+    if (top != null && world.get(K(x, top, z)) === 'grass' && !world.has(K(x, top + 1, z)) && !(Math.abs(x) < 9 && z < -1 && z > -22)) setBlock(x, top + 1, z, FL[Math.floor(rng() * FL.length)]);
+  }
+  for (let x = -2; x <= 2; x++) for (let z = 2; z <= 6; z++) for (let y = 2; y <= 12; y++) { const tt = world.get(K(x, y, z)); if (tt === 'leaf' || tt === 'trunk') removeBlock(x, y, z); } // never start stuck in a tree
+  remesh();
+}
+let slot = 1; try { slot = +(localStorage.getItem('lumen_slot')) || 1; } catch (e) { }
+function SAVE_KEY() { return 'lumen_save_v2_s' + slot; }
+const TYPE_LIST = Object.keys(T), TYPE_IDX = {}; TYPE_LIST.forEach((k, i) => TYPE_IDX[k] = i);
+let saveData = null; try { saveData = JSON.parse(localStorage.getItem(SAVE_KEY())); } catch (e) { }
+if (!saveData || saveData.v !== 2) saveData = null;
+genWorld(saveData ? saveData.seed : (Math.random() * 2147483647) | 0);
+if (saveData) {   // replay the player's edits onto the regenerated world
+  for (const e of saveData.e || []) { const [k, ti] = e.split(':'), c = k.split(',').map(Number); if (ti === '') { removeBlock(c[0], c[1], c[2]); edits.set(k, null); } else { setBlock(c[0], c[1], c[2], TYPE_LIST[+ti]); edits.set(k, TYPE_LIST[+ti]); } }
+  remesh();
+}
 
 // ---------- hero ----------
 function part(w, h, d, color, x, y, z, opts = {}) {
@@ -829,7 +918,7 @@ function findSpawn(minR, maxR) {
     const z = Math.max(-R + 1, Math.min(R - 1, Math.round(heroZ + Math.sin(ang) * rad)));
     if (holy(x, z)) continue;
     const top = colTop.get(XZ(x, z)), tt = top != null ? world.get(K(x, top, z)) : null;
-    if (top != null && top <= 5 && (tt === 'grass' || tt === 'dirt')) return [x, z];
+    if (tt === 'grass' || tt === 'sand') return [x, z];
   }
   return null;
 }
@@ -925,6 +1014,13 @@ for (let i = 0; i < 3; i++) {
   scene.add(g); sheep.push(g);
 }
 
+// ---------- drifting clouds (flat white slabs, Minecraft-style) ----------
+const clouds = new THREE.Group(); scene.add(clouds);
+{
+  const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+  for (let i = 0; i < 24; i++) { const c = new THREE.Mesh(box, cm); c.scale.set(4 + Math.random() * 9, 0.8, 3 + Math.random() * 6); c.position.set((Math.random() * 2 - 1) * (R + 26), 36 + Math.random() * 6, (Math.random() * 2 - 1) * (R + 20)); clouds.add(c); }
+}
+
 // ---------- particles ----------
 const sparks = [], sparkGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14); // SHARED geometry (no per-spark alloc)
 function burst(pos, cols = [0x8fe6ff, 0xf4d03f, 0xffffff, 0xbdf0a0]) {
@@ -968,22 +1064,17 @@ function updGoal() {
   }
   g.innerHTML = '<b>✦ QUEST</b>' + txt + '<br>Armor ' + armor + '/' + ARMOR_TOTAL;
 }
-const BUILD_TYPES = ['grass', 'stone', 'plank', 'brick', 'white', 'glassB', 'gold'];
-let sel = 3;
+const BUILD_TYPES = ['grass', 'dirt', 'stone', 'plank', 'brick', 'white', 'glassB', 'gold', 'leaf'];
+const BNAME = { glassB: 'glass', white: 'white stone', leaf: 'leaves' };
+let sel = 0;
 const hotbar = document.getElementById('hotbar');
 function drawHotbar() {
-  hotbar.innerHTML = BUILD_TYPES.map((t, i) => `<span class="${i === sel ? 'on' : ''}">${i + 1} ${t}</span>`).join('');
-  hotbar.style.display = mode === 'build' ? 'block' : 'none';
+  hotbar.innerHTML = BUILD_TYPES.map((t, i) => `<span class="${i === sel ? 'on' : ''}"><i style="background:#${T[t].c.toString(16).padStart(6, '0')}"></i><b>${i + 1}</b></span>`).join('')
+    + '<em>' + (BNAME[BUILD_TYPES[sel]] || BUILD_TYPES[sel]) + ' &middot; scroll or 1-9 to pick</em>';
 }
 const hintEl = document.getElementById('hint');
-let mode = 'fight';
 function setHint() {
-  document.getElementById('modeTxt').textContent = mode.toUpperCase();
-  const ta = document.getElementById('tAct'); if (ta) ta.textContent = mode === 'fight' ? '⚔' : '⛏';
-  const tp = document.getElementById('tPlace'); if (tp) tp.style.display = mode === 'build' ? '' : 'none';
-  hintEl.innerHTML = mode === 'fight'
-    ? '<b>W/S</b> walk · <b>A/D</b> turn · Space jump · drag look · <b>click</b> swing · <b>F</b> light bolt · <b>E</b> talk / read relics · <b>M</b> music · Tab → build'
-    : '<b>W/S</b> walk · <b>A/D</b> turn · 1-7 pick block · <b>click</b> break · <b>shift+click</b> place · <b>E</b> talk / read relics · <b>M</b> music · Tab → fight';
+  hintEl.innerHTML = '<b>WASD</b> move · <b>mouse</b> look · <b>Space</b> jump · <b>Shift</b> sprint · <b>left-click</b> strike / break · <b>right-click</b> place / talk · <b>F</b> light bolt · <b>E</b> talk · <b>V</b> camera · <b>M</b> music';
   drawHotbar();
 }
 
@@ -1000,7 +1091,7 @@ function mring(x, z, col) { mapCtx.strokeStyle = col; mapCtx.lineWidth = 1.5; ma
 let mapT = 0;
 function drawMap() {
   const g = mapCtx; g.clearRect(0, 0, MAP_S, MAP_S);
-  mdot(0, -13, 6, '#c2502e', true);                                          // shrine (brick block)
+  mdot(0, -13, 6, '#9c4444', true);                                          // shrine (brick red — no orange)
   g.strokeStyle = '#f4d03f'; g.lineWidth = 1.5; const sx = w2m(0), sz = w2m(-13);
   g.beginPath(); g.moveTo(sx, sz - 4); g.lineTo(sx, sz + 4); g.moveTo(sx - 4, sz); g.lineTo(sx + 4, sz); g.stroke(); // cross atop shrine
   mdot(POND.x, POND.z, 6, '#3a6ea5');                                        // pond
@@ -1018,40 +1109,38 @@ function drawMap() {
 // ---------- input ----------
 const keys = {};
 function doJump() { if (!jumping) { vy = armorSet.shoes ? 8.6 : 6.4; jumping = true; sfx.jump(); } }
-function toggleMode() { mode = mode === 'fight' ? 'build' : 'fight'; setHint(); }
-function actPrimary() { if (mode === 'fight') swingSword(); else editBlock(new THREE.Vector2(0, 0), false); }
-function actPlace() { if (mode === 'build') editBlock(new THREE.Vector2(0, 0), true); }
+function cycleView() { view = (view + 1) % 3; showMsg(['first-person', 'behind', 'far'][view] + ' camera'); }
 addEventListener('keydown', e => {
   if (e.target && e.target.tagName === 'INPUT') return;   // typing a name must not trigger game keys (M muted music mid-word!)
   keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); doJump(); }
-  if (e.code === 'Tab') { e.preventDefault(); toggleMode(); }
   if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < BUILD_TYPES.length) { sel = n; drawHotbar(); } }
   if (e.code === 'KeyE') talkSaint();
   if (e.code === 'KeyM') { musicOn = !musicOn; showMsg(musicOn ? '♪ music on' : 'music off'); }
   if (e.code === 'KeyF') fireBolt();
+  if (e.code === 'KeyV') cycleView();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
-const ray = new THREE.Raycaster();
-// one pointer pipeline: short tap = act, drag = look around, wheel = zoom
+// mouse = look, via pointer lock (Minecraft). Touch, or a mouse the browser won't lock: drag = look, tap = strike.
+const locked = () => document.pointerLockElement === canvas;
+document.addEventListener('mousemove', e => { if (locked()) { camYaw -= e.movementX * 0.0025; camPitch += e.movementY * 0.0025; } });
+document.addEventListener('pointerlockchange', () => { document.getElementById('mode').style.display = locked() ? 'none' : ''; });
 let pDown = false, pDrag = false, pStartX = 0, pStartY = 0, pLastX = 0, pLastY = 0, pTime = 0;
-canvas.addEventListener('pointerdown', e => { pDown = true; pDrag = false; pStartX = pLastX = e.clientX; pStartY = pLastY = e.clientY; pTime = performance.now(); });
+canvas.addEventListener('pointerdown', e => {
+  if (locked()) { if (e.button === 2) actSecondary(); else actPrimary(); return; }
+  if (e.pointerType === 'mouse' && started && canvas.requestPointerLock) { try { canvas.requestPointerLock(); } catch (err) { } }
+  if (e.pointerType === 'mouse' && e.button === 2) { actSecondary(); return; }
+  pDown = true; pDrag = false; pStartX = pLastX = e.clientX; pStartY = pLastY = e.clientY; pTime = performance.now();
+});
 canvas.addEventListener('pointermove', e => {
-  if (!pDown) return;
+  if (!pDown || locked()) return;
   if (!pDrag && Math.hypot(e.clientX - pStartX, e.clientY - pStartY) > 5) pDrag = true;
-  if (pDrag) { camYaw -= (e.clientX - pLastX) * 0.005; camPitch = Math.max(0.14, Math.min(1.35, camPitch - (e.clientY - pLastY) * 0.005)); lastDragMs = performance.now(); }
+  if (pDrag) { camYaw -= (e.clientX - pLastX) * 0.005; camPitch += (e.clientY - pLastY) * 0.005; }
   pLastX = e.clientX; pLastY = e.clientY;
 });
-function pointerEnd(e) {
-  if (pDown && !pDrag && performance.now() - pTime < 350) {
-    const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-    if (mode === 'fight') swingSword(); else editBlock(ndc, e.shiftKey);
-  }
-  pDown = false;
-}
-canvas.addEventListener('pointerup', pointerEnd);
+canvas.addEventListener('pointerup', () => { if (pDown && !pDrag && performance.now() - pTime < 350) actPrimary(); pDown = false; });
 canvas.addEventListener('pointercancel', () => { pDown = false; });
-canvas.addEventListener('wheel', e => { camDist = Math.max(5, Math.min(18, camDist + Math.sign(e.deltaY) * 1.2)); }, { passive: true });
+canvas.addEventListener('wheel', e => { sel = (sel + (e.deltaY > 0 ? 1 : BUILD_TYPES.length - 1)) % BUILD_TYPES.length; drawHotbar(); }, { passive: true }); // scroll the hotbar
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); started = false; showMsg('Graphics hiccup — please reload.'); }, false);
 
@@ -1084,14 +1173,48 @@ function checkVictory() {
   v.style.opacity = 1; setTimeout(() => { v.style.opacity = 0; }, 12000);
   sfx.quest(); setTimeout(() => sfx.quest(), 700); updHUD();
 }
-function swingSword() {
+// the block under the crosshair: a voxel march down the view ray starting just past the hero (a few hundred Map lookups)
+function aimBlock() {
+  const o = camera.position, d = new THREE.Vector3(); camera.getWorldDirection(d);
+  const start = view === 0 ? 0.3 : Math.max(0.3, o.distanceTo(camTarget) - 1.6), far = start + 6;
+  const hit = t => t && !T[t].water && !T[t].invis;
+  let px = null, py = 0, pz = 0;
+  for (let s = start; s < far; s += 0.08) {
+    const x = Math.round(o.x + d.x * s), y = Math.round(o.y + d.y * s), z = Math.round(o.z + d.z * s);
+    if (px === null) { px = x; py = y; pz = z; const t = world.get(K(x, y, z)); if (hit(t)) return { type: t, bp: [x, y, z], n: [0, 1, 0] }; continue; }
+    // cross one axis at a time so the face we hit is always a single axis (no diagonal placements)
+    if (x !== px) { const t = world.get(K(x, py, pz)); if (hit(t)) return { type: t, bp: [x, py, pz], n: [px - x, 0, 0] }; px = x; }
+    if (y !== py) { const t = world.get(K(px, y, pz)); if (hit(t)) return { type: t, bp: [px, y, pz], n: [0, py - y, 0] }; py = y; }
+    if (z !== pz) { const t = world.get(K(px, py, z)); if (hit(t)) return { type: t, bp: [px, py, z], n: [0, 0, pz - z] }; pz = z; }
+  }
+  return null;
+}
+const hl = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02)), new THREE.LineBasicMaterial({ color: 0x0b0b16 })); // block outline
+hl.visible = false; scene.add(hl);
+function actPrimary() {   // left-click: strike a shadow in reach, otherwise break the block under the crosshair
+  if (!started) return;
   swing = 1; sfx.swing();
-  const f = facing();
-  const reach = armorSet.sword ? 3.7 : 2.6, hit = armorSet.sword ? 2 : 1;
+  const f = facing(), reach = armorSet.sword ? 3.7 : 2.6, hit = armorSet.sword ? 2 : 1;
+  let struck = false;
   enemies.slice().forEach(en => {
     const dx = en.userData.x - heroX, dz = en.userData.z - heroZ, d = Math.hypot(dx, dz);
-    if (d < reach && (dx * f.x + dz * f.z) > -0.3) damageEnemy(en, hit);
+    if (d < reach && (dx * f.x + dz * f.z) > -0.3) { damageEnemy(en, hit); struck = true; }
   });
+  if (struck) return;
+  const a = aimBlock(); if (!a) return;
+  removeBlock(a.bp[0], a.bp[1], a.bp[2]); edits.set(K(a.bp[0], a.bp[1], a.bp[2]), null);
+  burst(new THREE.Vector3(a.bp[0], a.bp[1], a.bp[2]), [T[a.type].c, 0xffffff]); blip(160, 0.08, 'square', 0.05);
+  markDirty(); remesh();
+}
+function actSecondary() { // right-click: place the selected block on the face you're aiming at — or talk, if nothing's there
+  if (!started) return;
+  const a = aimBlock(); if (!a) { talkSaint(); return; }
+  const np = [a.bp[0] + a.n[0], a.bp[1] + a.n[1], a.bp[2] + a.n[2]], k = K(np[0], np[1], np[2]), ex = world.get(k);
+  if (ex && !T[ex].soft) return;
+  if (Math.hypot(np[0] - heroX, np[2] - heroZ) < 0.9 && Math.abs(np[1] - hero.position.y - 1) < 1.5) return; // not inside the hero
+  if (ex) removeBlock(np[0], np[1], np[2]);                                                                    // a flower gives way
+  setBlock(np[0], np[1], np[2], BUILD_TYPES[sel]); edits.set(k, BUILD_TYPES[sel]); placedCount++; swing = 0.5;
+  blip(420, 0.06, 'square', 0.04); markDirty(); remesh();
 }
 // ranged attack — a bolt of holy light
 const bolts = [], boltGeo = new THREE.SphereGeometry(0.22, 8, 8), boltMat = new THREE.MeshBasicMaterial({ color: 0x9fe9ff }); // SHARED
@@ -1106,35 +1229,13 @@ function fireBolt() {
   scene.add(m); bolts.push(m);
   blip(900, 0.08, 'triangle', 0.04); blip(1240, 0.09, 'sine', 0.03);
 }
-function editBlock(ndc, place) {
-  ray.setFromCamera(ndc, camera); ray.far = 9;
-  const hits = ray.intersectObjects(Object.values(meshOf));
-  for (const h of hits) {
-    const type = h.object.userData.type; if (T[type].water) continue;
-    const bp = posOf[type][h.instanceId];
-    if (place) {
-      const n = h.face.normal;
-      const np = [bp[0] + Math.round(n.x), bp[1] + Math.round(n.y), bp[2] + Math.round(n.z)];
-      if (world.has(K(...np))) return;
-      if (Math.hypot(np[0] - heroX, np[2] - heroZ) < 0.9 && Math.abs(np[1] - hero.position.y - 1) < 1.5) return; // not inside hero
-      setBlock(np[0], np[1], np[2], BUILD_TYPES[sel]); placedCount++;
-    } else {
-      removeBlock(bp[0], bp[1], bp[2]);
-    }
-    markDirty(); remesh(); return;
-  }
-}
-function facing() { return new THREE.Vector3(Math.sin(hero.rotation.y), 0, Math.cos(hero.rotation.y)); } // the hero's own facing — sword, bolts and feet all agree
+function facing() { return new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw)); } // where you're looking — sword, bolts and feet all agree
 
-// ---------- save / load (localStorage, with 3 slots) ----------
-let slot = 1; try { slot = +(localStorage.getItem('lumen_slot')) || 1; } catch (e) { }
-function SAVE_KEY() { return 'lumen_save_v1_s' + slot; }
+// ---------- save / load (localStorage, 3 slots; slot + SAVE_KEY live up by genWorld) ----------
 let slotNames = {}; try { slotNames = JSON.parse(localStorage.getItem('lumen_names') || '{}'); } catch (e) { }
 function persistNames() { try { localStorage.setItem('lumen_names', JSON.stringify(slotNames)); } catch (e) { } }
 function showName() { const el = document.getElementById('heroName'); if (el) el.textContent = '⚔ ' + (slotNames[slot] || ('Hero ' + slot)); }
-function ensureName() { if (!slotNames[slot]) { const n = (window.prompt('Name your hero:') || '').trim(); slotNames[slot] = n || ('Hero ' + slot); persistNames(); } showName(); }
 function renameHero() { const n = (window.prompt('Name your hero:', slotNames[slot] || '') || '').trim(); if (n) { slotNames[slot] = n; persistNames(); showName(); } }
-const TYPE_LIST = Object.keys(T), TYPE_IDX = {}; TYPE_LIST.forEach((k, i) => TYPE_IDX[k] = i);
 let dirty = false, saveTimer = 0;
 function markDirty() { dirty = true; }
 const savedEl = document.getElementById('saved');
@@ -1144,28 +1245,21 @@ let noSave = false;   // set by "new world" so the beforeunload autosave can't w
 function doSave() {
   if (noSave) return;
   try {
-    const w = [];
-    for (const [k, type] of world) { if (T[type].invis) continue; const c = k.split(','); w.push(+c[0], +c[1], +c[2], TYPE_IDX[type]); } // shell rebuilt on load, not saved
+    const e = []; for (const [k, t] of edits) e.push(k + ':' + (t == null ? '' : TYPE_IDX[t]));   // the world is its seed + these
     localStorage.setItem(SAVE_KEY(), JSON.stringify({
-      v: 1, w, hero: [heroX, heroZ], armor: armorSet, armorN: armor, faith, banished, placed: placedCount, bossDone: bossDefeated,
+      v: 2, seed, e, hero: [heroX, heroZ, camYaw], armor: armorSet, armorN: armor, faith, banished, placed: placedCount, bossDone: bossDefeated,
       quests: saints.map(s => ({ a: s.userData.quest.accepted, d: s.userData.quest.done, b: s.userData.quest.baseline })),
     }));
     dirty = false; flashSaved();
   } catch (e) { /* storage unavailable (private mode / quota) */ }
 }
-function doLoad() {
-  let d; try { d = JSON.parse(localStorage.getItem(SAVE_KEY())); } catch (e) { }
-  if (!d || !d.w) return false;
-  world.clear(); colTop.clear();
-  for (let i = 0; i < d.w.length; i += 4) setBlock(d.w[i], d.w[i + 1], d.w[i + 2], TYPE_LIST[d.w[i + 3]]);
-  shrineShell();          // always rebuild the current shrine, wiping any stale one baked into the save
-  remesh();
-  heroX = d.hero[0]; heroZ = d.hero[1]; faith = d.faith; banished = d.banished || 0; placedCount = d.placed || 0;
+function applySave(d) {   // the world itself was regenerated + edits replayed before anything was placed on it
+  heroX = d.hero[0]; heroZ = d.hero[1]; if (isFinite(d.hero[2])) camYaw = d.hero[2]; faith = d.faith; banished = d.banished || 0; placedCount = d.placed || 0;
   Object.assign(armorSet, d.armor || {}); armor = d.armorN || 0; bossDefeated = !!d.bossDone;
   pickups.forEach(p => { if (armorSet[p.userData.id]) { p.userData.taken = true; p.userData.attach(p); } });
   (d.quests || []).forEach((q, i) => { const s = saints[i]; if (!s) return; const qq = s.userData.quest; qq.accepted = q.a; qq.done = q.d; qq.baseline = q.b; if (q.d) s.userData.mark.visible = false; });
   won = bossDefeated && armor >= ARMOR_TOTAL;   // finished games load straight into peaceful free play (no replayed fireworks)
-  updHUD(); return true;
+  updHUD();
 }
 addEventListener('keydown', e => { if (e.code === 'KeyO') doSave(); });
 addEventListener('beforeunload', () => { try { doSave(); } catch (e) { } });
@@ -1178,7 +1272,7 @@ document.querySelectorAll('#slots [data-slot]').forEach(b => { if (+b.getAttribu
 function bindHold(btn, code) { btn.addEventListener('pointerdown', e => { e.preventDefault(); keys[code] = true; }); const off = () => { keys[code] = false; }; btn.addEventListener('pointerup', off); btn.addEventListener('pointerleave', off); btn.addEventListener('pointercancel', off); }
 document.querySelectorAll('#dpad .tb').forEach(b => bindHold(b, b.getAttribute('data-k')));
 function tap(id, fn) { document.getElementById(id).addEventListener('pointerup', e => { e.preventDefault(); fn(); }); }
-tap('tAct', actPrimary); tap('tBolt', fireBolt); tap('tPlace', actPlace); tap('tJump', doJump); tap('tMode', toggleMode); tap('tTalk', talkSaint);
+tap('tAct', actPrimary); tap('tBolt', fireBolt); tap('tPlace', actSecondary); tap('tJump', doJump); tap('tView', cycleView); tap('tTalk', talkSaint);
 
 // ---------- loop ----------
 let vy = 0, jumping = false, walkPhase = 0;
@@ -1189,25 +1283,27 @@ function frame() {
   frameCount++; fpsT += dt; fpsN++; if (fpsT >= 0.5) { fpsEl.textContent = Math.round(fpsN / fpsT) + ' fps · f' + frameCount; fpsT = 0; fpsN = 0; }
   updateDayNight(t);
   if (!started) { applyCamera(dt); renderer.render(scene, camera); requestAnimationFrame(frame); return; }
-  // movement: W/S walk, A/D turn, camera trails behind (camera-relative strafing + auto-trail used to chase
-  // each other, so holding A spun you in circles). After a drag-look, W walks toward where you're looking.
-  const turn = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0), go = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
-  heroTurning = turn !== 0; heroMoving = go !== 0;
-  if (turn) hero.rotation.y += turn * 2.6 * dt;
-  if (go > 0 && performance.now() - lastDragMs < 1100) { const dy = camYaw - hero.rotation.y; hero.rotation.y += Math.atan2(Math.sin(dy), Math.cos(dy)) * Math.min(1, dt * 6); }
-  if (go) {
-    const f = facing(), sp = (armorSet.belt ? 6.4 : 5) * dt * go;
+  // movement: WASD relative to the view, the body faces where you look (Minecraft). Shift sprints with a little FOV kick.
+  hero.rotation.y = camYaw;
+  const f = facing(), mv = new THREE.Vector3();
+  if (keys['KeyW']) mv.add(f); if (keys['KeyS']) mv.sub(f);
+  if (keys['KeyD']) { mv.x -= f.z; mv.z += f.x; } if (keys['KeyA']) { mv.x += f.z; mv.z -= f.x; }
+  heroMoving = mv.lengthSq() > 0;
+  const sprint = heroMoving && !!(keys['ShiftLeft'] || keys['ShiftRight']);
+  if (heroMoving) {
+    mv.normalize().multiplyScalar((armorSet.belt ? 6.4 : 5) * (sprint ? 1.5 : 1) * dt);
     const feet = hero.position.y, STEP = 1.1;
-    const nx = Math.max(-R + .5, Math.min(R - .5, heroX + f.x * sp));
+    const nx = Math.max(-R + .5, Math.min(R - .5, heroX + mv.x));
     const sx = standY(nx, heroZ, feet); if (sx != null && sx - feet <= STEP) heroX = nx;
-    const nz = Math.max(-R + .5, Math.min(R - .5, heroZ + f.z * sp));
+    const nz = Math.max(-R + .5, Math.min(R - .5, heroZ + mv.z));
     const sz = standY(heroX, nz, feet); if (sz != null && sz - feet <= STEP) heroZ = nz;
   }
+  const fovT = sprint ? 70 : 60; if (Math.abs(camera.fov - fovT) > 0.05) { camera.fov += (fovT - camera.fov) * Math.min(1, dt * 6); camera.updateProjectionMatrix(); }
   let target = standY(heroX, heroZ, hero.position.y); if (target == null) target = surfaceY(heroX, heroZ);
   if (jumping) { vy -= 18 * dt; let y = hero.position.y + vy * dt; if (y <= target) { y = target; jumping = false; vy = 0; } hero.position.set(heroX, y, heroZ); }
   else hero.position.set(heroX, target, heroZ);
   // walk cycle — striding legs, swinging arms, knee/elbow flex, idle breathing, a bouncing step
-  walkPhase += heroMoving ? dt * 9 : 0;
+  walkPhase += heroMoving ? dt * (sprint ? 13 : 9) : 0;
   const sw = heroMoving ? Math.sin(walkPhase) * 0.62 : Math.sin(t * 1.8) * 0.06;
   lLeg.rotation.x = sw; rLeg.rotation.x = -sw; lArm.rotation.x = -sw * 0.85;
   lLeg.userData.lo.rotation.x = Math.max(0, sw) * 1.2; rLeg.userData.lo.rotation.x = Math.max(0, -sw) * 1.2; // knees bend on the lift
@@ -1328,7 +1424,9 @@ function frame() {
   }
   // sparks
   for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.userData.life -= dt; s.position.addScaledVector(s.userData.v, dt); s.userData.v.y -= 6 * dt; s.material.opacity = Math.max(0, s.userData.life); s.scale.setScalar(Math.max(0.1, s.userData.life)); if (s.userData.life <= 0) { scene.remove(s); s.material.dispose(); sparks.splice(i, 1); } }
-  applyCamera(dt);   // trails behind the hero, drag-aware (the camera follow lives entirely here)
+  applyCamera(dt);
+  { const a = aimBlock(); hl.visible = !!a; if (a) hl.position.set(a.bp[0], a.bp[1], a.bp[2]); }   // block outline under the crosshair
+  clouds.children.forEach(c => { c.position.x += dt * 0.9; if (c.position.x > R + 26) c.position.x = -R - 26; });
   saints.forEach(s => { s.userData.mark.rotation.y += dt * 2; s.userData.mark.position.y = 2.45 + Math.sin(t * 2) * 0.1; });
   if (msgT > 0) { msgT -= dt; if (msgT <= 0) msgEl.style.opacity = 0; }
   if (saintT > 0) { saintT -= dt; if (saintT <= 0) saintBox.style.opacity = 0; }
@@ -1338,7 +1436,7 @@ function frame() {
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); });
 updHUD(); setHint();
-if (!doLoad()) doSave();   // restore a saved world, or persist the fresh one on first run
+if (saveData) applySave(saveData); else doSave();   // restore progress, or persist the fresh seed on first run
 showName();
 { const ni = document.getElementById('nameInput'); if (ni) ni.value = slotNames[slot] || ''; }
 function beginGame() {
